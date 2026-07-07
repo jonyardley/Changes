@@ -36,7 +36,7 @@ An iOS app that trains a jazz pianist's ear — hearing notes against a key, jaz
 Daily hands-free training loop. The user experience is mostly *auditory*; the design task is the thin visual shell around it plus the audio-flow choreography.
 
 1. **Start:** open app → today's session is front and center ("18 min · Level 4: Chord qualities · 12 reviews due"). One giant play button. Optional: duration override (10/15/20), "shadow mode" toggle (listen-only, no grading — for zero-attention days).
-2. **In session (screen locked / in pocket):** lock-screen & Dynamic Island presence like a podcast: exercise counter, elapsed/remaining, pause. Earbud/tap gestures = "got it" / "missed it."
+2. **In session (screen locked / in pocket):** lock-screen & Dynamic Island presence like a podcast: exercise counter, elapsed/remaining, pause. Earbud/tap gestures = "got it" / "missed it." The answer arrives **aurally, never as synthesized speech** (2026-07 decision — no TTS): a degree resolves stepwise to the tonic, a chord replays as its decomposition arpeggio (bass → 3rd → 7th → color), and the lock-screen title updates ("It was: ♭3") for a pocket glance.
 3. **In session (screen open):** a calm "now playing" canvas: current key, what's being asked (e.g., "Quality of this chord?"), a subtle countdown of the thinking gap, then the revealed answer ("G7♭9") with its visual identity. Big tap zones: **Got it / Missed it**.
 4. **Miss flow (the Banacos loop):** the app alternates the missed sound with its context or its confusable twin ("m7♭5 vs dim7 — hear the 7th move"). Visualize the comparison simply (two cards A/B-ing). User exits the loop when ready.
 5. **Session end:** 30-second recap — items mastered, weakest confusion pair, what's due tomorrow, rung progress. One line of genuine encouragement, then a "tonight at the piano" nudge (ties to Journey 3).
@@ -48,7 +48,7 @@ Key states to cover: pre-session, playing, thinking-gap, answer reveal, miss/com
 1. Welcome: the promise in one screen ("Learn to hear changes. Headphones on, phone away.")
 2. Quick context capture: instrument (piano-first), self-assessed level, session length, commute days.
 3. **Placement test:** a 3–4 minute mini Pocket Session sampling rungs 0–6 → places the user on the curriculum ladder. Design the "you're here" moment: the 9-rung ladder as an appealing map of the journey from "find the tonic" to "hear whole tunes."
-4. Permission asks framed by value (notifications = practice window on commute days; mic = later, only when they reach singing exercises).
+4. Permission asks framed by value (notifications = practice window on commute days; Bluetooth/MIDI = later, only when they reach at-the-piano exercises).
 
 ### Journey 3 — Progress & the Ladder (retention surface)
 
@@ -60,9 +60,9 @@ Key states to cover: pre-session, playing, thinking-gap, answer reveal, miss/com
 
 Blind transcription, productized: pick a standard → hear its changes in jazz-trio texture with the chart hidden → identify form, then landmark chords, then cell-by-cell — the chart *reveals itself* as you get sections right. Design the reveal mechanic: a real-book-style lead sheet that starts as empty bars and fills in as the user proves they hear each cell. Missed cells visibly flow into tomorrow's Pocket Session queue.
 
-### Journey 5 — Call & Response (voice mode; concept-level only for now)
+### Journey 5 — At the Piano: instrument call & response (concept-level only for now)
 
-Walking mode: "sing the 3rd of this chord" → mic listens → tuner-like feedback (flat/sharp/nailed it, octave-agnostic). Design question: pitch feedback that's encouraging rather than clinical. One hero screen + the listening state.
+*(Replaced 2026-07 — was a voice/singing mode; voice interaction is now out of scope entirely.)* Evening companion mode at the instrument: app plays a phrase/voicing → user plays it back on a MIDI keyboard (Bluetooth/USB) → note-for-note feedback, with the same comparison-loop spirit on misses. Design questions: the listening/played-back feedback moment (encouraging, not clinical — the "never a red X" principle applies), and MIDI pairing UX that doesn't feel like printer setup. One hero screen + the awaiting-input state.
 
 ## Screen inventory (minimum set)
 
@@ -72,7 +72,7 @@ Walking mode: "sing the 3rd of this chord" → mic listens → tuner-like feedba
 4. Onboarding (3–4 screens) + placement result ("you're here" ladder moment)
 5. Ladder / progress hub + one item-detail
 6. Tune Workbench: tune list + the self-revealing lead sheet
-7. (Stretch) Call & Response listening state
+7. (Stretch) At the Piano: awaiting-input / played-back feedback state
 
 ## Constraints & platform notes
 

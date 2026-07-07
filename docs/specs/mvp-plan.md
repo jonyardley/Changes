@@ -40,9 +40,16 @@ with Phase 2 content. Build the frame once; content types plug in.
    other phases, standard transport. Lock-screen *buttons* always keep podcast
    semantics (the design's "never remapped" rule applies to visible transport;
    contextual earbud taps are how ×1/×2 grading is physically possible).
-5. **Spoken answers default ON** — core to eyes-free use. The demo's silence
-   was a demo-only choice (per handoff README). `AVSpeechSynthesizer` ducks
-   the sampler; ducking policy lives in one shell component.
+5. **No voice, in either direction (stakeholder decision, 2026-07).** No
+   text-to-speech answers, no sung-answer grading — the design handoff's
+   spoken-answer references are superseded. The eyes-free reveal is **aural**:
+   a degree resolves stepwise to the tonic (the resolution path names it —
+   the Benbassat move); a chord replays as its decomposition arpeggio (bass →
+   3rd → 7th → color). The Now Playing title updates at reveal ("It was: ♭3")
+   for pocket-glance confirmation. If M2 dogfooding shows the aural reveal is
+   ambiguous for some item types, the fallback option is short **pre-recorded
+   human voice clips** (finite vocabulary, not TTS) — a stakeholder decision
+   to take then, not built now.
 6. **SRS: FSRS-style scheduler in `jazzear-core`.** Evaluate `fsrs-rs` (the
    Anki implementation) first — **check its license fits a paid closed-source
    app before adopting**; otherwise implement SM-2 behind the same trait so
@@ -84,24 +91,26 @@ Session state machine exactly per the design spec (`design/README.md`
 (compare)]* → recap`, pause/interrupted overlays, auto-continue off by
 default, shadow mode. Exercise generator for Rungs 0–2 (cadence + degree
 items, major → minor → chromatic), deterministic from (curriculum, SRS state,
-seed). SRS scheduler + daily queue. GRDB storage effects + migration v1
-(`updated_at`/`deleted_at` from day one). Effect-level tests assert the
-emitted `PlayScore`/`Speak`/timer sequences — the choreography is tested
-without audio.
+seed). **Aural-reveal score generation** (resolution paths for degrees;
+decomposition arpeggios for chords — decision 5). SRS scheduler + daily
+queue. GRDB storage effects + migration v1 (`updated_at`/`deleted_at` from
+day one). Effect-level tests assert the emitted `PlayScore`/timer sequences —
+the choreography is tested without audio.
 
 ### M3 — Pocket Session UI
 All canvas states, pixel-close to 1a/2b/4b: pre-session, context/listening
 (level bars only), question ("?" pulse), gap (countdown ring), reveal
-(degree/symbol + spoken answer; answer zones 25%↔100%), compare (2b
-two-cards), paused, interrupted (amber banner), complete (ledger + "tonight
-at the piano"). Snapshot test + VoiceOver + Dynamic Type per screen, plus the
-**screen-off pass**: every interaction verified with display locked.
+(degree/symbol on screen + aural reveal playback + Now Playing title update;
+answer zones 25%↔100%), compare (2b two-cards), paused, interrupted (amber
+banner), complete (ledger + "tonight at the piano"). Snapshot test +
+VoiceOver + Dynamic Type per screen, plus the **screen-off pass**: every
+interaction verified with display locked.
 
 ### M4 — Hands-free hardening
-Spoken answers with ducking; route-change handling (headphones unplugged =
-pause, never speaker); external-audio auto-hold with replay-item semantics
-("no item is ever lost to an interruption"); settings surface (session
-length, gap 2–8s, auto-continue, shadow, spoken answers).
+Route-change handling (headphones unplugged = pause, never speaker);
+external-audio auto-hold with replay-item semantics ("no item is ever lost
+to an interruption"); Now Playing answer-title polish; settings surface
+(session length, gap 2–8s, auto-continue, shadow mode).
 
 ### M5 — Surrounding surfaces
 Home hub (today card, week bars, "needs your ear"), Ladder (9 rungs, mastery
@@ -131,7 +140,7 @@ one-time purchase wiring deferred until public TestFlight feedback.
 | Earbud remote-command behaviour varies by headphone vendor | M1 test matrix: AirPods, wired, generic BT; screen-tap always works as fallback |
 | SoundFont quality (jazz piano feel) | Timbre is explicitly not the spec; pick a decent free SF2 now, revisit later |
 | `fsrs-rs` license incompatible | SM-2 behind the same trait (decision 6) |
-| Speech + sampler ducking sounds bad | Single ducking component; tune in M4; spoken-answer setting exists as escape hatch |
+| Aural reveal ambiguous for some item types (can the user *tell* the answer from the resolution/decomposition alone?) | Dogfood in M2 with real commute use; per-type reveal design; fallback = pre-recorded human voice clips (decision 5 — stakeholder call, not TTS) |
 | Live Activity update cadence limits | Deferred to M6; Now Playing carries MVP |
 
 Open with stakeholder: none blocking. Decisions 1–4 above are recommendations

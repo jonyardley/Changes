@@ -63,11 +63,14 @@ docs/                    # Product docs: CONCEPT, RESEARCH, DESIGN_BRIEF, roadma
 - **iOS**: SwiftUI, iOS 17+, xcodegen; `@Observable` store wrapping the core
 - **Audio out**: `AVAudioEngine` + sampler (SoundFont piano/bass/ride),
   driven entirely by core-emitted score events
-- **Audio in** (later phases): `AVAudioEngine` mic tap → raw buffers →
-  core-side pitch detection (YIN/pYIN in Rust)
+- **Instrument in** (later phases): CoreMIDI (Bluetooth LE / USB) → core
+  events for played-answer grading; later, `AVAudioEngine` mic tap → raw
+  buffers → core-side note detection for acoustic pianos. **No voice I/O in
+  either direction** — no TTS, no sung-answer grading (decision 2026-07);
+  the eyes-free answer reveal is aural (resolution / decomposition playback)
+  plus the Now Playing title
 - **Persistence**: GRDB (SQLite) executing typed storage effects; `crux_kv`
   for small singletons only
-- **Speech**: `AVSpeechSynthesizer` for spoken answers in Pocket Sessions
 - **Task runner**: `just` (mirror intrada's justfile recipes: `just ios`,
   `just ios-run`, `just ios-gen`, `just ios-logs`)
 
@@ -92,8 +95,8 @@ a red CI roundtrip costs more than the local check.
 ### Crux capabilities pattern
 
 ```text
-User/Audio → Events → jazzear-core (Rust) → Effects (PlayScore, Storage,
-                                             Speak, Render, …) → Shell → I/O
+User/Audio/MIDI → Events → jazzear-core (Rust) → Effects (PlayScore,
+                                            Storage, Render, …) → Shell → I/O
 ```
 
 1. **Core owns ALL logic.** Music theory, exercise generation, session
@@ -102,7 +105,7 @@ User/Audio → Events → jazzear-core (Rust) → Effects (PlayScore, Storage,
    `Event`/`Command`.
 2. **Shells are dumb pipes.** The Swift shell renders `ViewModel`, sends
    `Event`s, and fulfils effects: realize a `PlayScore` with the sampler,
-   execute a typed storage op, speak a string, stream mic buffers. No domain
+   execute a typed storage op, forward MIDI/remote-command events. No domain
    types, no musical decisions, no validation in Swift.
 3. **The core is deterministic.** An exercise is a pure function of
    (curriculum state, SRS state, RNG seed). No wall-clock or RNG calls inside
@@ -236,8 +239,9 @@ values.
   `.playback` with background audio entitlement, correct interruption + route
   change handling (headphones unplugged on a train = auto-pause, not blast
   from the speaker).
-- **Speech + music mixing**: spoken answers duck the sampler, not fight it —
-  decide the ducking policy in one place in the shell.
+- **No TTS is a product decision, not an omission** (2026-07). Don't
+  reintroduce `AVSpeechSynthesizer` for "quick" announcements — the answer
+  reveal is aural playback + Now Playing title by design.
 
 ## Workflow
 

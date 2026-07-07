@@ -31,7 +31,8 @@ Sonofield for a jazz user on its own. Build order and decisions:
       thinking gap → reveal; Banacos error loop)
 - [ ] SRS scheduler (FSRS-style) + GRDB persistence (sync-ready schema)
 - [ ] Pocket Session UI: pre-session, in-session states, lock screen /
-      Dynamic Island, earbud-tap grading, spoken answers
+      Dynamic Island, earbud-tap grading, aural reveal (resolution /
+      decomposition playback — no TTS; lock-screen title shows the answer)
 - [ ] Session recap + Ladder/progress hub (Levels 0–2 only)
 - [ ] Onboarding + placement test (rungs 0–2)
 
@@ -53,18 +54,26 @@ Sonofield for a jazz user on its own. Build order and decisions:
 - [ ] Tune Workbench: blind-transcription flow with self-revealing lead
       sheet; missed cells feed the SRS queue
 
-## Phase 4 — Voice: Call & Response
+## Phase 4 — Instrument I/O: MIDI call & response
 
-- [ ] Mic capture → core pitch detection (YIN/pYIN)
-- [ ] Sung-answer grading (octave-agnostic, tolerance-based)
-- [ ] Level 3 sing-backs; "sing the 3rd/7th/#9" exercises
+*(Voice input/output dropped 2026-07 — no sung grading, no TTS. The
+instrument is the production channel.)*
 
-## Phase 5 — Piano companion
+- [ ] CoreMIDI input (Bluetooth LE + USB), device pairing UX
+- [ ] Played-answer grading in core (note-for-note, timing-tolerant)
+- [ ] Call & response at the piano: phrases, "play the 3rd/7th/#9",
+      Banacos comparison loop on misses
+- [ ] Level 3 phrase-echo grading
 
-- [ ] MIDI (USB/Bluetooth) input; play-what-you-hear grading
+## Phase 5 — Piano companion, expanded
+
+- [ ] Acoustic-instrument note detection (mic buffers → core; onset +
+      chroma), for pianos without MIDI
 - [ ] Level 7: extensions/alterations as colors; voicing ID + reproduction
 
 ## Deliberately out of scope
 
 Accounts, server/sync, subscriptions, social/leaderboards, Android/web
-(the Crux core keeps the option open; not planned).
+(the Crux core keeps the option open; not planned). **Voice interaction in
+both directions** — no text-to-speech answers, no sung-answer grading
+(dropped 2026-07; aural reveal + instrument I/O replace them).
