@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: Test
@@ -103,15 +103,66 @@ jobs:
             gitleaks detect --redact -v --exit-code=1
           fi
 
+  # Bindings are gitignored build output, regenerated here from the PR's core
+  # every run (the cache key is a pure function of everything the output
+  # depends on) — staleness is impossible by construction, which is the
+  # "bindings freshness" gate mvp-plan M0 asks for.
+  ios:
+    name: iOS (bindings + build)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.5"
+      # rustup reads rust-toolchain.toml (pinned version + iOS targets)
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: "ios"
+          cache-on-failure: true
+      - name: Install just + xcodegen
+        run: brew install just xcodegen
+      - name: Cache cargo-swift
+        id: cargo-swift-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-swift
+          key: cargo-swift-0.9.0-${{ runner.os }}-${{ runner.arch }}
+      - name: Install cargo-swift
+        if: steps.cargo-swift-cache.outputs.cache-hit != 'true'
+        # Must stay in lockstep with the uniffi pin in crates/changes-ffi
+        # (a skew is a runtime crash; lib.rs asserts the uniffi side).
+        run: cargo install cargo-swift --version "=0.9.0" --locked
+      # Content-addressed: key covers every input the generated bindings
+      # depend on, so a hit is byte-equivalent to regenerating.
+      - name: Cache generated Swift bindings
+        id: bindings-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/generated
+          key: ios-bindings-cargoswift-0.9.0-${{ runner.os }}-${{ hashFiles('crates/changes-core/src/**', 'crates/changes-ffi/src/**', 'crates/changes-core/Cargo.toml', 'crates/changes-ffi/Cargo.toml', 'Cargo.lock') }}
+      - name: Regenerate Swift bindings (facet typegen + cargo-swift)
+        if: steps.bindings-cache.outputs.cache-hit != 'true'
+        run: just ios-gen
+      - name: Cache SwiftPM packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/spm
+          key: ios-spm-v1-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          restore-keys: |
+            ios-spm-v1-${{ runner.os }}-
+      - name: Build the app (simulator)
+        run: just ios-build
+
   # ── The one required status check ──────────────────────────────────────
   # Branch protection requires exactly this job ("CI OK") and nothing else.
   # When adding jobs, list them in `needs` — protection never changes.
-  # M0-iOS adds an `ios` (macos runner) job here: build the app + verify
-  # generated bindings are fresh (regen, fail on diff) — see mvp-plan M0.
   ci-ok:
     name: CI OK
     runs-on: ubuntu-latest
-    needs: [docs, fmt, clippy, test, deny, gitleaks]
+    needs: [docs, fmt, clippy, test, deny, gitleaks, ios]
     if: always()
     steps:
       - name: All needed jobs succeeded

@@ -2,20 +2,20 @@
 
 > Last reviewed: 2026-07-07.
 
-> ## ⚠️ PROJECT STATUS: M0 in progress — quality rails landed, iOS scaffold next
+> ## ⚠️ PROJECT STATUS: M0 complete — next M1 (audio spike, the go/no-go gate)
 >
 > What exists: product docs (`docs/`), a completed Claude Design pass
 > (`design/` — read `design/README.md`), the implementation plan
-> (`docs/specs/mvp-plan.md`, milestones M0–M6, decisions taken), and the
+> (`docs/specs/mvp-plan.md`, milestones M0–M6, decisions taken), the
 > **Rust workspace with all quality gates live** (crux walking skeleton in
 > `crates/changes-core`, strict lints, cargo-deny, CI, justfile — run
-> `just setup` once per clone). **Next: M0-iOS** (xcodegen project,
-> `Theme.swift` token sheet, uniffi+typegen bindings proving
-> `Event::Ping → ViewModel` through a real bridge round-trip, plus the iOS
-> CI job — macOS runner build + bindings-freshness check wired into
-> CI OK's `needs`), **then M1
-> (audio spike — the explicit go/no-go gate).** Architecture carries lessons
-> from [intrada](https://github.com/jonyardley/intrada) (same Crux + SwiftUI
+> `just setup` once per clone), and the **iOS scaffold** (xcodegen project
+> in `ios/`, `Theme.swift` token sheet + bundled fonts, uniffi + facet
+> typegen bindings proving `Event::Ping → ViewModel` through the real
+> bridge, iOS CI job in CI OK's `needs`; `just ios-run` launches it).
+> **Next: M1 (audio spike — the explicit go/no-go gate; exit criteria need
+> a real device).** Architecture carries lessons from
+> [intrada](https://github.com/jonyardley/intrada) (same Crux + SwiftUI
 > stack). As code lands, update this banner and replace "planned" sections
 > with reality. When docs and code disagree, the code is reality and this
 > file has a bug — fix it.
@@ -82,9 +82,10 @@ crates/
                          #   theory engine (keys, chords, voicings, cells)
                          #   exercise generator, session state machine
                          #   SRS scheduler, grading, pitch analysis
-  changes-ffi/           # UniFFI / typegen bridge crate  [exists; wiring = M0-iOS]
-ios/                     # SwiftUI shell (xcodegen)  [lands with M0-iOS]
+  changes-ffi/           # UniFFI bridge + facet typegen codegen bin  [exists]
+ios/                     # SwiftUI shell (xcodegen; project.yml)  [exists]
   Changes/               #   app source; generated bindings under ios/generated/
+                         #   (gitignored — `just ios-gen` regenerates)
 design/                  # Claude Design mockups + design system reference
 docs/                    # Product docs: CONCEPT, RESEARCH, DESIGN_BRIEF, roadmap
 ```
@@ -115,7 +116,7 @@ just setup                 # once per clone: installs the pre-push hook
 just ci                    # full CI mirror: fmt-check, clippy, test, deny, links
 just pre-push              # fast gates (fmt-check + clippy + test) — the hook runs this
 just fmt / clippy / test / deny / links   # individual gates
-just ios / ios-run / ios-gen / ios-logs   # stubs until M0-iOS lands
+just ios / ios-run / ios-gen / ios-logs   # Xcode / sim launch / bindings / logs
 ```
 
 `just ci` mirrors every CI gate (gitleaks is skipped with a warning if the

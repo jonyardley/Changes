@@ -11,10 +11,11 @@ rust-version = "1.90"
 publish = false
 
 [workspace.dependencies]
-# facet (typegen reflection) is deliberately NOT pinned here yet — it becomes
-# a direct dep at M0-iOS; derive its pin then from `cargo tree -i facet` so
-# it matches what crux_core resolves (see .github/dependabot.yml).
 crux_core = "0.19"
+# Must track the facet version crux_core 0.19 pulls in (0.44.x) so the
+# gated `derive(facet::Facet)` impls match crux's typegen reflection
+# (see .github/dependabot.yml).
+facet = "0.44"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

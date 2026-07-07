@@ -13,20 +13,25 @@ Workflow → Always).
       prototype (`design/` — see `design/README.md`; direction 1a "Blue Hour
       Console")
 - [x] MVP implementation plan (`docs/specs/mvp-plan.md` — milestones M0–M6)
-- [ ] M0 — Scaffold
+- [x] M0 — Scaffold
   - [x] Rust workspace + quality rails (2026-07-07): `changes-core` crux
         walking skeleton (`Event::Ping → ViewModel`, bincode round-trip
         tests), `changes-ffi` placeholder, strict lints (unwrap denied),
         pinned toolchain, cargo-deny, CI — Rust-only so far
         (fmt/clippy/test/deny/gitleaks → required "CI OK"), justfile +
         pre-push hook, dependabot (cargo)
-  - [ ] xcodegen iOS project, `Theme.swift` from the design token sheet,
-        bundled fonts
-  - [ ] Bindings pipeline (uniffi + typegen): `Event::Ping → ViewModel`
-        through a real bridge round-trip
-  - [ ] iOS CI: macOS-runner job building the iOS app + generated-bindings
-        freshness check (regen, fail on diff), added to CI OK's `needs`
-        (completes mvp-plan M0's "CI (fmt/clippy/test + iOS build)")
+  - [x] xcodegen iOS project, `Theme.swift` from the design token sheet,
+        bundled fonts (Space Grotesk + Newsreader, OFL notices alongside)
+        (2026-07-07)
+  - [x] Bindings pipeline (uniffi =0.29.4 + cargo-swift 0.9.0 +
+        facet typegen): `Event::Ping → ViewModel` through a real bridge
+        round-trip (`crates/changes-ffi/src/ffi.rs` test + on-sim launch);
+        `just ios / ios-run / ios-gen / ios-build / ios-logs` live
+        (2026-07-07)
+  - [x] iOS CI: macos-26 runner job regenerating bindings from the PR's
+        core (content-addressed cache — staleness impossible by
+        construction, no committed bindings to diff) + building the app,
+        added to CI OK's `needs` (2026-07-07)
 - [ ] M1 — Audio spike: `PlayScore` → AVAudioEngine sampler; glitch-free,
       sample-accurate tap-driven playback; interruption + route-change
       handling. **Make-or-break; go/no-go gate before any feature work**

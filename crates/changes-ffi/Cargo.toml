@@ -1,13 +1,37 @@
 [package]
 name = "changes-ffi"
-description = "UniFFI / typegen bridge crate — lands with M0-iOS"
+description = "UniFFI / typegen bridge crate for the iOS shell"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lib]
+crate-type = ["cdylib", "lib", "staticlib"]
+
+[[bin]]
+name = "codegen"
+required-features = ["codegen"]
+
+[features]
+facet_typegen = ["changes-core/facet_typegen", "crux_core/facet_typegen"]
+uniffi = ["dep:uniffi"]
+codegen = ["dep:anyhow", "dep:clap", "facet_typegen"]
+
 [dependencies]
+crux_core = { workspace = true }
 changes-core = { workspace = true }
+thiserror = { workspace = true }
+# Pinned to match cargo-swift 0.9.0's bundled bindgen; lib.rs asserts at
+# compile time (a skew is a runtime crash, not a build error).
+uniffi = { version = "=0.29.4", optional = true }
+
+# codegen-only
+anyhow = { version = "1", optional = true }
+clap = { version = "4", optional = true, features = ["derive"] }
+
+[dev-dependencies]
+bincode = { workspace = true }
 
 [lints]
 workspace = true

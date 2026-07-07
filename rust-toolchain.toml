@@ -5,3 +5,5 @@
 [toolchain]
 channel = "1.93.1"
 components = ["rustfmt", "clippy"]
+# iOS device + simulator std, for cargo-swift packaging (just ios-gen).
+targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]

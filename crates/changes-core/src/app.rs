@@ -11,6 +11,8 @@ pub struct Changes;
 /// All events the application can process. Bridge-crossing: serialized over
 /// positional bincode to the shell — field order is the wire format.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
+#[cfg_attr(feature = "facet_typegen", repr(C))]
 pub enum Event {
     Ping,
 }
@@ -22,12 +24,14 @@ pub struct Model {
 
 /// Bridge-crossing: what shells render.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
+#[cfg_attr(feature = "facet_typegen", repr(C))]
 pub struct ViewModel {
     pub pong_count: u32,
 }
 
 /// Side effects the core requests from shells.
-#[effect]
+#[effect(facet_typegen)]
 pub enum Effect {
     Render(RenderOperation),
 }

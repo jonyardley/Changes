@@ -6,9 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# Enables facet reflection on the FFI-boundary types so the native iOS
+# bridge's typegen (crux_core::type_generation::facet) can emit Swift types.
+facet_typegen = ["dep:facet", "crux_core/facet_typegen"]
+
 [dependencies]
 crux_core = { workspace = true }
 serde = { workspace = true }
+facet = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The FFI bridge is positional bincode (non-self-describing); every

@@ -5,9 +5,10 @@
 /target/
 **/*.rs.bk
 
-# Xcode
+# Xcode (the project itself is xcodegen output — `just ios` regenerates it)
 ios/build/
 ios/DerivedData/
+ios/*.xcodeproj/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 xcuserdata/
