@@ -20,7 +20,7 @@ jobs:
     name: Docs sanity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: No merge-conflict markers
         run: |
           if grep -rn --include='*.md' -E '^(<{7} |>{7} )' .; then
