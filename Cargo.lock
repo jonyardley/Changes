@@ -30,10 +30,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6a120d2e16b3e1b4a24bd70f23b12d3e16b81f113364a26935f8db7245452d"
+
+[[package]]
 name = "changes-core"
 version = "0.1.0"
 dependencies = [
- "bincode",
+ "bincode 3.0.0",
  "crux_core",
  "serde",
 ]
@@ -73,7 +79,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "159720bb44c1a09e0089459217c8ea6c71a78d868c5bf55d5b41f8781e92af7a"
 dependencies = [
  "anyhow",
- "bincode",
+ "bincode 1.3.3",
  "crossbeam-channel",
  "crux_macros",
  "facet",

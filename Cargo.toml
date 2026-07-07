@@ -20,7 +20,7 @@ serde_json = "1"
 thiserror = "2"
 ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
-bincode = "1"
+bincode = "3"
 
 changes-core = { path = "crates/changes-core" }
 
