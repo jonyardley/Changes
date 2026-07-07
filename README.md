@@ -27,13 +27,13 @@ that claim: [docs/RESEARCH.md](docs/RESEARCH.md).
 - [CLAUDE.md](CLAUDE.md) — development guidelines and architecture
   non-negotiables
 
-## Architecture (planned)
+## Architecture
 
-Crux (Rust) core + SwiftUI shell:
+Crux (Rust) core + SwiftUI shell (shell lands with the remaining M0 work):
 
 - **`changes-core`** — all logic: music theory engine, exercise generation,
   session choreography, SRS scheduling, grading. Pure, deterministic,
-  testable without a simulator.
+  testable without a simulator. (Workspace exists; walking skeleton so far.)
 - **iOS shell** — a dumb pipe: renders the ViewModel, realizes core-emitted
   score events on an `AVAudioEngine` sampler, persists via GRDB. Later
   phases add CoreMIDI input (played-answer grading at the piano) and mic
@@ -43,9 +43,13 @@ Offline-first, no accounts, one-time purchase.
 
 ## Status
 
-Pre-code. Complete so far: research, concept, design brief, a full Claude
-Design pass ([design/](design/README.md) — direction "Blue Hour Console",
-including a choreography prototype whose playback timings are product spec),
-and the implementation plan ([docs/specs/mvp-plan.md](docs/specs/mvp-plan.md)).
-Next: milestone M0 (scaffold), then M1 (audio spike — go/no-go gate). See
+M0 (scaffold) in progress. Landed 2026-07-07: the Rust workspace + quality
+rails — `changes-core` crux walking skeleton, strict lints, cargo-deny, CI
+with a required "CI OK" check, justfile + pre-push hook (`just setup` once
+per clone, `just ci` mirrors CI). Also complete: research, concept, design
+brief, a full Claude Design pass ([design/](design/README.md) — direction
+"Blue Hour Console"), and the implementation plan
+([docs/specs/mvp-plan.md](docs/specs/mvp-plan.md)). Remaining M0: xcodegen
+iOS project + `Theme.swift`, the uniffi/typegen bindings pipeline, and the
+iOS CI job; then M1 (audio spike — go/no-go gate). See
 [docs/roadmap.md](docs/roadmap.md).

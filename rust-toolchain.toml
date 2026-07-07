@@ -1,6 +1,7 @@
 # Pinned for reproducible local + CI builds; bump deliberately (it's not
-# dependabot-managed). rust-version in Cargo.toml is the *minimum*; this is
-# the version everything actually builds with.
+# dependabot-managed). Cargo.toml's rust-version mirrors the strictest
+# dependency MSRV (currently crux_core at 1.90), not an independently
+# verified floor; this pin is the version everything actually builds with.
 [toolchain]
 channel = "1.93.1"
 components = ["rustfmt", "clippy"]

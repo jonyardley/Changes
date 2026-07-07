@@ -6,34 +6,39 @@ on:
   # No branch filter: stacked PRs (target = feature branch) need CI too —
   # otherwise they sit at "no checks reported" until rebased onto main.
   pull_request:
+  # Weekly + manual full run: surfaces new RUSTSEC advisories between PRs
+  # (deny job) and runs gitleaks' full-history scan (see the gitleaks job).
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
 
 # Cancel superseded runs on PRs; let every main run finish.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+
+# Third-party actions are SHA-pinned (tag-move compromise of an action in the
+# required gate = arbitrary code with the workflow token). Dependabot's
+# github-actions ecosystem maintains these pins.
 
 jobs:
   docs:
     name: Docs sanity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: No merge-conflict markers
-        run: |
-          if grep -rn --include='*.md' -E '^(<{7} |>{7} )' .; then
-            echo 'Merge-conflict markers found'; exit 1
-          fi
-      - name: Internal doc links resolve
-        run: python3 .github/scripts/check_doc_links.py
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Broken relative links + merge-conflict markers; same script as
+      # `just links` so local and CI can't drift.
+      - run: python3 .github/scripts/check_doc_links.py
 
   fmt:
     name: Formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # rustup reads rust-toolchain.toml (pinned version + components)
       - run: rustup toolchain install
       - run: cargo fmt --check
@@ -42,41 +47,67 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo test --locked --workspace
 
   deny:
     name: Supply chain (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+        with:
+          # --all-features is the action's default `arguments`; keep it when
+          # adding --locked or feature coverage silently drops.
+          arguments: --all-features --locked
 
+  # Direct gitleaks CLI, not gitleaks-action@v2: the action scans only the
+  # first 30 PR commits (gitleaks/gitleaks-action#187), and with squash-only
+  # merges a transient secret in commit 31+ would never be scanned anywhere
+  # while staying fetchable via refs/pull/N/head. PRs scan the full webhook
+  # base..head range — the only moment the whole commit chain is reachable;
+  # push/schedule/dispatch runs scan the full history.
   gitleaks:
     name: Secrets (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - name: Install gitleaks
+        # Version-pinned tool download; dependabot won't bump this — check
+        # https://github.com/gitleaks/gitleaks/releases when touching it.
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+      - name: Scan
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gitleaks detect --redact -v --exit-code=1 \
+              --log-opts="--no-merges --first-parent ${BASE_SHA}..${HEAD_SHA}"
+          else
+            gitleaks detect --redact -v --exit-code=1
+          fi
 
   # ── The one required status check ──────────────────────────────────────
   # Branch protection requires exactly this job ("CI OK") and nothing else.
   # When adding jobs, list them in `needs` — protection never changes.
+  # M0-iOS adds an `ios` (macos runner) job here: build the app + verify
+  # generated bindings are fresh (regen, fail on diff) — see mvp-plan M0.
   ci-ok:
     name: CI OK
     runs-on: ubuntu-latest

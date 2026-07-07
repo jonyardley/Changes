@@ -87,21 +87,22 @@ mod tests {
     }
 
     // The bridge is positional bincode (non-self-describing): every
-    // bridge-crossing type keeps a round-trip test so a silent wire break
-    // fails here, not as a no-op in the shell (intrada #846).
+    // bridge-crossing type gets a round-trip test via the shared helper so
+    // a silent wire break fails here, not as a no-op in the shell
+    // (intrada #846). Effect payloads round-trip their operation types —
+    // the generated `*Ffi` enum derives no PartialEq/Debug.
     #[test]
     fn event_bincode_round_trip() {
-        let event = Event::Ping;
-        let bytes = bincode::serialize(&event).unwrap();
-        let back: Event = bincode::deserialize(&bytes).unwrap();
-        assert_eq!(event, back);
+        crate::test_support::assert_bincode_round_trip(&Event::Ping);
     }
 
     #[test]
     fn view_model_bincode_round_trip() {
-        let vm = ViewModel { pong_count: 42 };
-        let bytes = bincode::serialize(&vm).unwrap();
-        let back: ViewModel = bincode::deserialize(&bytes).unwrap();
-        assert_eq!(vm, back);
+        crate::test_support::assert_bincode_round_trip(&ViewModel { pong_count: 42 });
+    }
+
+    #[test]
+    fn render_operation_bincode_round_trip() {
+        crate::test_support::assert_bincode_round_trip(&RenderOperation);
     }
 }

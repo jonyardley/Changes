@@ -16,6 +16,9 @@ updates:
         patterns:
           - "crux*"
     ignore:
+      # facet must track whatever crux_core resolves (typegen reflection).
+      # It becomes a direct dep at M0-iOS: derive its workspace pin then
+      # from `cargo tree -i facet`; never let dependabot bump it solo.
       - dependency-name: "facet"
       - dependency-name: "facet-*"
     # When uniffi lands (M0-iOS): pin + ignore uniffi* here too — it must

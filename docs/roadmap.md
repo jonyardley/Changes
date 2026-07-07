@@ -17,12 +17,16 @@ Workflow → Always).
   - [x] Rust workspace + quality rails (2026-07-07): `changes-core` crux
         walking skeleton (`Event::Ping → ViewModel`, bincode round-trip
         tests), `changes-ffi` placeholder, strict lints (unwrap denied),
-        pinned toolchain, cargo-deny, CI (fmt/clippy/test/deny/gitleaks →
-        required "CI OK"), justfile + pre-push hook, dependabot (cargo)
+        pinned toolchain, cargo-deny, CI — Rust-only so far
+        (fmt/clippy/test/deny/gitleaks → required "CI OK"), justfile +
+        pre-push hook, dependabot (cargo)
   - [ ] xcodegen iOS project, `Theme.swift` from the design token sheet,
         bundled fonts
   - [ ] Bindings pipeline (uniffi + typegen): `Event::Ping → ViewModel`
         through a real bridge round-trip
+  - [ ] iOS CI: macOS-runner job building the iOS app + generated-bindings
+        freshness check (regen, fail on diff), added to CI OK's `needs`
+        (completes mvp-plan M0's "CI (fmt/clippy/test + iOS build)")
 - [ ] M1 — Audio spike: `PlayScore` → AVAudioEngine sampler; glitch-free,
       sample-accurate tap-driven playback; interruption + route-change
       handling. **Make-or-break; go/no-go gate before any feature work**

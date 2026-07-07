@@ -11,7 +11,9 @@
 > `crates/changes-core`, strict lints, cargo-deny, CI, justfile — run
 > `just setup` once per clone). **Next: M0-iOS** (xcodegen project,
 > `Theme.swift` token sheet, uniffi+typegen bindings proving
-> `Event::Ping → ViewModel` through a real bridge round-trip), **then M1
+> `Event::Ping → ViewModel` through a real bridge round-trip, plus the iOS
+> CI job — macOS runner build + bindings-freshness check wired into
+> CI OK's `needs`), **then M1
 > (audio spike — the explicit go/no-go gate).** Architecture carries lessons
 > from [intrada](https://github.com/jonyardley/intrada) (same Crux + SwiftUI
 > stack). As code lands, update this banner and replace "planned" sections
@@ -116,9 +118,11 @@ just fmt / clippy / test / deny / links   # individual gates
 just ios / ios-run / ios-gen / ios-logs   # stubs until M0-iOS lands
 ```
 
-CI runs the same gates plus gitleaks; the single required check is **CI OK**.
-Run `just pre-push` locally *before pushing*, not just before committing —
-a red CI roundtrip costs more than the local check (the hook enforces this).
+`just ci` mirrors every CI gate (gitleaks is skipped with a warning if the
+binary isn't installed — `brew install gitleaks`); the single required check
+is **CI OK**. Run `just pre-push` locally *before pushing*, not just before
+committing — a red CI roundtrip costs more than the local check (the hook
+enforces this).
 
 Lint policy (enforced, not aspirational): `clippy::unwrap_used` is **denied**
 workspace-wide — a per-site `#[allow]` needs a WHY comment; tests are exempt
@@ -197,7 +201,9 @@ door open:
 
 ## Code Style
 
-- Rust stable. `cargo fmt` + `cargo clippy -- -D warnings` must pass.
+- Rust stable. `just fmt-check` + `just clippy` must pass (clippy runs
+  `--locked --workspace --all-targets` — always use the just recipe, a bare
+  `cargo clippy` misses test code and lockfile drift).
 - No `unwrap()` without justification.
 - Prefer well-established libraries over custom implementations — except the
   music theory engine, which is core domain and stays first-party.
@@ -229,8 +235,11 @@ get the same treatment. Two-line cap as a smell test: longer usually means
   replay via fixed seeds.
 - **Bridge-crossing types need a real round-trip test as a build
   precondition** — a stub bridge can't catch a bincode wire break (intrada
-  #846). Extend the round-trip helper to every `Event`/`Effect`/`ViewModel`
-  payload before it's wired to a screen.
+  #846). Extend the round-trip helper
+  (`assert_bincode_round_trip` in `crates/changes-core/src/test_support.rs`)
+  to every `Event`/`Effect`/`ViewModel` payload before it's wired to a
+  screen (effect payloads round-trip their operation types — the generated
+  `*Ffi` enum has no `PartialEq`).
 - **Audio choreography** is tested at the effect level: given a session plan,
   assert the sequence/timing of emitted `PlayScore`/timer effects — no
   simulator or real audio needed. (There is no `Speak` effect and never will
@@ -282,8 +291,9 @@ values.
   pre-recorded clips (rejected 2026-07-07); every input is a touch on the
   screen. Don't reintroduce `AVSpeechSynthesizer` for "quick"
   announcements, and don't add `SFSpeechRecognizer`/Siri intents for
-  "convenient" voice control — the answer reveal is aural playback + Now
-  Playing title by design.
+  "convenient" voice control — the answer reveal is aural playback plus the
+  on-screen answer by design (a Now Playing answer title arrives only with
+  the deferred pocket mode, per mvp-plan decisions 3/10).
 
 ## Workflow
 

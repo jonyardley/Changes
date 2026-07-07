@@ -5,15 +5,16 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+# Mirrors the strictest dependency MSRV (crux_core 0.19 requires 1.90);
+# clippy::incompatible_msrv enforces it via -D warnings.
+rust-version = "1.90"
 publish = false
 
 [workspace.dependencies]
-# crux_core 0.19 pulls facet 0.44 for typegen reflection — the facet pin must
-# track whatever crux_core resolves, or derive(Facet) impls mismatch the
-# typegen (intrada lesson).
+# facet (typegen reflection) is deliberately NOT pinned here yet — it becomes
+# a direct dep at M0-iOS; derive its pin then from `cargo tree -i facet` so
+# it matches what crux_core resolves (see .github/dependabot.yml).
 crux_core = "0.19"
-facet = "0.44"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
