@@ -21,5 +21,10 @@ updates:
       # from `cargo tree -i facet`; never let dependabot bump it solo.
       - dependency-name: "facet"
       - dependency-name: "facet-*"
+      # bincode 1.x mirrors crux_core's bridge serializer — the round-trip
+      # tests must match the real FFI wire format. Major bumps (2.x/3.x)
+      # break both the API and the format; revisit when crux migrates.
+      - dependency-name: "bincode"
+        update-types: ["version-update:semver-major"]
     # When uniffi lands (M0-iOS): pin + ignore uniffi* here too — it must
     # match cargo-swift's bundled bindgen (intrada #966/#968).
