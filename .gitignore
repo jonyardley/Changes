@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Rust
+/target/
+**/*.rs.bk
+
+# Xcode
+ios/build/
+ios/DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Generated bindings (regenerated from core; commit policy TBD at scaffold time)
+# ios/generated/
+
+# Environment
+.env
+.env.local
+
+# Claude Code local settings
+.claude/settings.local.json
