@@ -96,11 +96,13 @@ final class GrdbReviewStore: ReviewStore {
         ])
       try db.execute(
         sql: """
-          INSERT INTO review_logs (id, skill, grade, reviewed_at, updated_at, deleted_at)
-          VALUES (?, ?, ?, ?, ?, NULL)
+          INSERT INTO review_logs
+            (id, skill, grade, answered, reviewed_at, updated_at, deleted_at)
+          VALUES (?, ?, ?, ?, ?, ?, NULL)
           """,
         arguments: [
           log.id, Self.key(of: log.skill), Self.gradeString(log.grade),
+          log.answered.map { Int($0.value) },
           log.reviewedAtMs, log.reviewedAtMs,
         ])
     }
@@ -152,6 +154,8 @@ final class GrdbReviewStore: ReviewStore {
 
   static var migrator: DatabaseMigrator {
     var migrator = DatabaseMigrator()
+    // Append-only: v2 records WHAT was answered (answer-input spec
+    // decision 6). NULL = pre-answer-input self-graded history.
     migrator.registerMigration("v1_reviews") { db in
       try db.execute(
         sql: """
@@ -178,6 +182,9 @@ final class GrdbReviewStore: ReviewStore {
           """)
       try db.execute(
         sql: "CREATE INDEX idx_review_logs_skill ON review_logs(skill, reviewed_at)")
+    }
+    migrator.registerMigration("v2_answered") { db in
+      try db.execute(sql: "ALTER TABLE review_logs ADD COLUMN answered INTEGER")
     }
     return migrator
   }

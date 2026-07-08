@@ -94,6 +94,7 @@ struct RootView: View {
           case .context: contextContent(vm)
           case .question: questionContent
           case .gap: gapContent
+          case .pick: pickContent(vm)
           case .reveal: revealContent(vm)
           case .compare: compareContent(vm)
           case .recap: recapContent(vm)
@@ -166,16 +167,59 @@ struct RootView: View {
     }
   }
 
+  /// The picker appears only after the recall commitment (spec decision 1).
+  /// Functional layout for now — variants to choose from come next.
+  private func pickContent(_ vm: ViewModel) -> some View {
+    VStack(spacing: 18) {
+      Text("What did you name?")
+        .changesOverline()
+      let columns = [GridItem(.adaptive(minimum: 64), spacing: 10)]
+      LazyVGrid(columns: columns, spacing: 10) {
+        ForEach(vm.options, id: \.semitones) { option in
+          Button {
+            store.send(.submitAnswer(degree: Degree(value: option.semitones)))
+          } label: {
+            Text(option.label)
+              .font(ChangesFont.musicHeadline(26))
+              .foregroundStyle(ChangesColor.textPrimary)
+              .frame(maxWidth: .infinity, minHeight: 60)
+              .background(
+                RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+                  .fill(ChangesColor.surface)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+                      .strokeBorder(ChangesColor.hairline)
+                  )
+              )
+          }
+          .accessibilityLabel("Degree \(option.label)")
+          .accessibilityHint("Submits this as your answer")
+        }
+      }
+    }
+  }
+
   private func revealContent(_ vm: ViewModel) -> some View {
     VStack(spacing: 12) {
-      Text("It was")
-        .changesOverline()
       if let answer = vm.answer {
+        if let verdict = answer.verdict {
+          Text(verdict.correct ? "You heard it" : "It was")
+            .changesOverline()
+        } else {
+          Text("It was")
+            .changesOverline()
+        }
         Text(answer.label)
           .font(ChangesFont.musicChordSymbol(84))
           .tracking(-84 * 0.02)
           .foregroundStyle(ChangesColor.textPrimary)
           .accessibilityLabel("The degree was \(answer.label)")
+        if let verdict = answer.verdict, !verdict.correct {
+          Text("you said \(verdict.yourLabel)")
+            .font(ChangesFont.musicAccentLine)
+            .foregroundStyle(ChangesColor.Tension.flat9)
+            .accessibilityLabel("You answered \(verdict.yourLabel)")
+        }
         Text(answer.resolution)
           .font(ChangesFont.musicAccentLine)
           .foregroundStyle(ChangesColor.accent)
@@ -327,14 +371,17 @@ struct RootView: View {
           tapZone("resume", accent: true) { store.send(.tapResume) }
         } else {
           switch vm.phase {
-          case .pre:
+          case .pre, .pick:
             EmptyView()
           case .context, .question:
-            answerZones(vm, enabled: false).opacity(0.25)
+            tapZone("", accent: false) {}.disabled(true).opacity(0.25)
           case .gap:
-            tapZone("tap to reveal", accent: true) { store.send(.tapReveal) }
+            tapZone("I've named it", accent: true) { store.send(.tapReady) }
           case .reveal:
-            answerZones(vm, enabled: true)
+            tapZone(
+              vm.answer?.verdict?.correct == false ? "hear the difference" : "continue",
+              accent: true
+            ) { store.send(.tapNext) }
           case .compare:
             tapZone("I hear it — continue", accent: true) { store.send(.exitCompare) }
           case .recap:
@@ -345,34 +392,6 @@ struct RootView: View {
       .animation(.easeInOut(duration: 0.3), value: vm.phase)
       .padding(.bottom, 16)
     }
-  }
-
-  private func answerZones(_ vm: ViewModel, enabled: Bool) -> some View {
-    HStack(spacing: 12) {
-      answerZone("Got it", event: .gradeGotIt, enabled: enabled)
-      answerZone("Missed it", event: .gradeMissedIt, enabled: enabled)
-    }
-  }
-
-  private func answerZone(_ label: String, event: Event, enabled: Bool) -> some View {
-    Button {
-      store.send(event)
-    } label: {
-      Text(label)
-        .font(ChangesFont.uiButton)
-        .foregroundStyle(ChangesColor.textPrimary)
-        .frame(maxWidth: .infinity, minHeight: ChangesSpacing.answerZoneHeight)
-        .background(
-          RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
-            .fill(ChangesColor.surface)
-            .overlay(
-              RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
-                .strokeBorder(ChangesColor.hairline)
-            )
-        )
-    }
-    .disabled(!enabled)
-    .accessibilityHint("Grades this item and moves on")
   }
 
   private func tapZone(_ label: String, accent: Bool, action: @escaping () -> Void) -> some View {
