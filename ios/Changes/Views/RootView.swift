@@ -222,7 +222,10 @@ struct RootView: View {
         } else {
           switch vm.phase {
           case .pre:
-            tapZone("start today's session", accent: true) { startSession() }
+            tapZone(vm.isLoading ? "loading…" : "start today's session", accent: true) {
+              startSession()
+            }
+            .disabled(vm.isLoading)
           case .listening:
             tapZone(vm.isPlaying ? "listening…" : "", accent: false) {}
               .disabled(true)
@@ -288,7 +291,8 @@ struct RootView: View {
   }
 
   private func startSession() {
-    // Shell-provided entropy: the core is deterministic given the seed.
-    store.send(.startSession(seed: UInt64(Date.now.timeIntervalSince1970 * 1000)))
+    // Shell-provided entropy + clock: the core is deterministic given both.
+    let nowMs = Int64(Date.now.timeIntervalSince1970 * 1000)
+    store.send(.startSession(seed: UInt64(bitPattern: nowMs), nowMs: nowMs))
   }
 }

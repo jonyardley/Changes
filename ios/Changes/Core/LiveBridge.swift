@@ -17,6 +17,11 @@ final class LiveBridge: CoreBridge {
     return try Requests.bincodeDeserialize(input: [UInt8](out)).value
   }
 
+  func resolve(_ id: UInt32, storageOutput: StorageOutput) throws -> [Request] {
+    let out = try core.resolve(id: id, data: Data(try storageOutput.bincodeSerialize()))
+    return try Requests.bincodeDeserialize(input: [UInt8](out)).value
+  }
+
   func view() throws -> ViewModel {
     try ViewModel.bincodeDeserialize(input: [UInt8](try core.view()))
   }

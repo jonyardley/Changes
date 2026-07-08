@@ -5,6 +5,8 @@ pub mod app;
 pub mod audio;
 pub mod rng;
 pub mod session;
+pub mod srs;
+pub mod storage;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod theory;
@@ -13,3 +15,5 @@ pub use app::{
     AnswerView, Changes, CompareView, Effect, Event, Model, Phase, RecapView, ViewModel,
 };
 pub use audio::{PlayScoreOperation, PlayScoreOutput, Score, ScoreNote};
+pub use srs::{Grade, ReviewLog, ReviewState, SkillId};
+pub use storage::{StorageOperation, StorageOutput};

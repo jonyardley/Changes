@@ -26,7 +26,8 @@ struct ChangesApp: App {
     while !Task.isCancelled {
       switch store.viewModel?.phase {
       case .pre, .recap:
-        store.send(.startSession(seed: 2_026_07_08))
+        let nowMs = Int64(Date.now.timeIntervalSince1970 * 1000)
+        store.send(.startSession(seed: 2_026_07_08, nowMs: nowMs))
       case .gap:
         store.send(.tapReveal)
       case .reveal:

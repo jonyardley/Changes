@@ -1,13 +1,15 @@
-//! Exercise items and their generator. An item is a degree heard against a
-//! key; the session is a pure function of (rung, count, seed) — SRS state
-//! joins the inputs in M2b.
+//! Exercise items and session planning. Since M2b the SRS queue decides
+//! WHAT is practised (docs/specs/srs-persistence.md); this module decides
+//! HOW it lands in a session: one key, shuffled presentation, still a pure
+//! function of its inputs.
 
 use serde::{Deserialize, Serialize};
 
 use crate::rng::SplitMix64;
+use crate::srs::SkillId;
 use crate::theory::{Degree, Key, Mode, PitchClass};
 
-/// Curriculum rungs the generator understands so far (RESEARCH.md ladder).
+/// Curriculum rungs the planner understands so far (RESEARCH.md ladder).
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
 #[cfg_attr(feature = "facet_typegen", repr(C))]
@@ -18,6 +20,34 @@ pub enum Rung {
     DiatonicMajor,
     /// Minor keys join, all 12 chromatic colors.
     MinorAndChromatic,
+}
+
+impl Rung {
+    /// The rung's skill pool in curriculum order — the SRS queue's "unseen"
+    /// ordering (spec decision 6).
+    pub fn skill_pool(self) -> Vec<SkillId> {
+        let major = |semis: &[u8]| {
+            semis
+                .iter()
+                .map(|&s| SkillId {
+                    mode: Mode::Major,
+                    degree: Degree::new(s),
+                })
+                .collect::<Vec<_>>()
+        };
+        match self {
+            Rung::Orientation => major(&[0, 4, 7]),
+            Rung::DiatonicMajor => major(&Mode::Major.scale_semitones()),
+            Rung::MinorAndChromatic => {
+                let mut pool = major(&core::array::from_fn::<u8, 12, _>(|i| i as u8));
+                pool.extend(Degree::all().map(|degree| SkillId {
+                    mode: Mode::Minor,
+                    degree,
+                }));
+                pool
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,106 +73,101 @@ impl Item {
     }
 }
 
-fn degree_pool(rung: Rung) -> Vec<Degree> {
-    match rung {
-        Rung::Orientation => [0u8, 4, 7].map(Degree::new).to_vec(),
-        Rung::DiatonicMajor => Mode::Major.scale_semitones().map(Degree::new).to_vec(),
-        Rung::MinorAndChromatic => Degree::all().to_vec(),
-    }
-}
-
-fn key_pool(rung: Rung) -> Vec<Key> {
-    // Flat-side jazz keys first; every key is fair game by rung 2.
+/// Flat-side jazz keys first; every key is fair game.
+fn key_pool(mode: Mode) -> Vec<Key> {
     let tonics = [0u8, 5, 10, 3, 8, 7, 2];
-    let mut keys: Vec<Key> = tonics
+    tonics
         .iter()
-        .map(|&t| Key::new(PitchClass::new(t), Mode::Major))
-        .collect();
-    if rung == Rung::MinorAndChromatic {
-        keys.extend(
-            tonics
-                .iter()
-                .map(|&t| Key::new(PitchClass::new(t), Mode::Minor)),
-        );
-    }
-    keys
+        .map(|&t| Key::new(PitchClass::new(t), mode))
+        .collect()
 }
 
-/// Deterministic session plan: same (rung, count, seed) → same items.
-/// One key per session (the design's key badge is a session-level fact);
-/// no immediate degree repeats.
-pub fn generate_session(rung: Rung, count: usize, seed: u64) -> Vec<Item> {
+/// Turn the SRS queue into a session plan: sessions are single-key hence
+/// single-mode (the key badge is a session-level fact), so the plan takes
+/// the mode of the queue's head — the highest-priority skill — and keeps
+/// only that mode's skills; presentation order is shuffled (a queue in
+/// curriculum order would let the user predict the answer), keys chosen by
+/// seed. Pure function of (queue, seed).
+pub fn plan_session(queue: &[SkillId], seed: u64) -> Vec<Item> {
     let mut rng = SplitMix64::new(seed);
-    let keys = key_pool(rung);
+    let Some(head) = queue.first() else {
+        return Vec::new();
+    };
+    let mode = head.mode;
+    let keys = key_pool(mode);
     let key = keys[rng.next_below(keys.len())];
-    let pool = degree_pool(rung);
 
-    let mut items = Vec::with_capacity(count);
-    let mut previous: Option<Degree> = None;
-    for _ in 0..count {
-        let degree = loop {
-            let candidate = pool[rng.next_below(pool.len())];
-            if pool.len() == 1 || Some(candidate) != previous {
-                break candidate;
-            }
-        };
-        previous = Some(degree);
-        items.push(Item { key, degree });
+    let mut degrees: Vec<Degree> = queue
+        .iter()
+        .filter(|skill| skill.mode == mode)
+        .map(|skill| skill.degree)
+        .collect();
+    // Fisher–Yates with the session rng.
+    for i in (1..degrees.len()).rev() {
+        degrees.swap(i, rng.next_below(i + 1));
     }
-    items
+    degrees
+        .into_iter()
+        .map(|degree| Item { key, degree })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn skills(mode: Mode, semis: &[u8]) -> Vec<SkillId> {
+        semis
+            .iter()
+            .map(|&s| SkillId {
+                mode,
+                degree: Degree::new(s),
+            })
+            .collect()
+    }
+
     #[test]
-    fn same_seed_same_session() {
+    fn same_seed_same_plan() {
+        let queue = skills(Mode::Major, &[0, 2, 4, 5, 7, 9, 11]);
+        assert_eq!(plan_session(&queue, 9), plan_session(&queue, 9));
+        assert_ne!(plan_session(&queue, 9), plan_session(&queue, 10));
+    }
+
+    #[test]
+    fn plan_preserves_queue_content_and_uses_one_key() {
+        let queue = skills(Mode::Major, &[0, 2, 4, 5, 7]);
+        let plan = plan_session(&queue, 3);
+        assert_eq!(plan.len(), 5);
+        let mut planned: Vec<u8> = plan.iter().map(|i| i.degree.semitones()).collect();
+        planned.sort_unstable();
+        assert_eq!(planned, vec![0, 2, 4, 5, 7]);
+        assert!(plan.windows(2).all(|w| w[0].key == w[1].key));
+    }
+
+    #[test]
+    fn plan_filters_to_the_head_skills_mode() {
+        let mut queue = skills(Mode::Minor, &[3]);
+        queue.extend(skills(Mode::Major, &[4, 7]));
+        let plan = plan_session(&queue, 1);
+        assert_eq!(plan.len(), 1, "major skills wait for a major session");
+        assert_eq!(plan[0].key.mode, Mode::Minor);
+    }
+
+    #[test]
+    fn empty_queue_plans_nothing() {
+        assert!(plan_session(&[], 1).is_empty());
+    }
+
+    #[test]
+    fn rung_pools_are_curriculum_ordered_and_sized() {
+        assert_eq!(Rung::Orientation.skill_pool().len(), 3);
+        assert_eq!(Rung::DiatonicMajor.skill_pool().len(), 7);
+        assert_eq!(Rung::MinorAndChromatic.skill_pool().len(), 24);
         assert_eq!(
-            generate_session(Rung::DiatonicMajor, 12, 99),
-            generate_session(Rung::DiatonicMajor, 12, 99)
+            Rung::DiatonicMajor.skill_pool()[0].degree.semitones(),
+            0,
+            "curriculum order starts at the tonic"
         );
-        assert_ne!(
-            generate_session(Rung::DiatonicMajor, 12, 99),
-            generate_session(Rung::DiatonicMajor, 12, 100)
-        );
-    }
-
-    #[test]
-    fn rung_pools_match_the_curriculum() {
-        for item in generate_session(Rung::Orientation, 50, 1) {
-            assert!([0, 4, 7].contains(&item.degree.semitones()));
-            assert_eq!(item.key.mode, Mode::Major);
-        }
-        for item in generate_session(Rung::DiatonicMajor, 50, 2) {
-            assert!(item.key.is_diatonic(item.degree));
-            assert_eq!(item.key.mode, Mode::Major);
-        }
-    }
-
-    #[test]
-    fn chromatic_rung_reaches_minor_keys_and_all_colors() {
-        let mut minor_seen = false;
-        let mut colors = std::collections::HashSet::new();
-        for seed in 0..40u64 {
-            for item in generate_session(Rung::MinorAndChromatic, 24, seed) {
-                minor_seen |= item.key.mode == Mode::Minor;
-                colors.insert(item.degree.semitones());
-            }
-        }
-        assert!(minor_seen);
-        assert_eq!(colors.len(), 12);
-    }
-
-    #[test]
-    fn no_back_to_back_repeats_and_one_key_per_session() {
-        for seed in 0..20u64 {
-            let items = generate_session(Rung::DiatonicMajor, 30, seed);
-            for pair in items.windows(2) {
-                assert_ne!(pair[0].degree, pair[1].degree);
-                assert_eq!(pair[0].key, pair[1].key);
-            }
-        }
     }
 
     #[test]

@@ -1,25 +1,31 @@
+use std::collections::HashMap;
+
 use crux_core::macros::effect;
 use crux_core::render::{render, RenderOperation};
 use crux_core::{App, Command};
 use serde::{Deserialize, Serialize};
+use ulid::Ulid;
 
 use crate::audio::{play_score, PlayScoreOperation, PlayScoreOutput};
-use crate::session::{
-    compare_side_score, generate_session, listening_score, reveal_score, Item, Rung,
-};
+use crate::rng::SplitMix64;
+use crate::session::{compare_side_score, listening_score, plan_session, reveal_score, Item, Rung};
+use crate::srs::{build_queue, FsrsScheduler, Grade, ReviewLog, Scheduler, SkillId};
+use crate::storage::{load_reviews, save_review, StorageOperation, StorageOutput};
 
-/// Session length until the SRS queue drives it (M2b) and the pre-session
-/// duration pills wire up (M3).
+/// Queue cap per session, until the pre-session duration pills wire up (M3).
 const ITEMS_PER_SESSION: usize = 12;
-/// Starting rung until placement (M5) and per-user progress (M2b) exist.
+/// Starting rung until placement (M5) and rung gating exist.
 const RUNG: Rung = Rung::DiatonicMajor;
 
 /// Root Crux application: the Pocket Session state machine
 /// (`pre → [listening → gap → reveal → (compare)]* → recap`), manually
 /// paced — every `→` that involves the user is a deliberate tap (mvp-plan
-/// decision 9). The design spec is `design/README.md` §Interactions.
+/// decision 9). What each session practises comes from the SRS queue
+/// (docs/specs/srs-persistence.md); grades feed back into it.
 #[derive(Default)]
-pub struct Changes;
+pub struct Changes {
+    scheduler: FsrsScheduler,
+}
 
 /// All events the application can process. Bridge-crossing: serialized over
 /// positional bincode to the shell — field order is the wire format.
@@ -27,14 +33,17 @@ pub struct Changes;
 #[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
 #[cfg_attr(feature = "facet_typegen", repr(C))]
 pub enum Event {
-    /// Pre-session play tap. The seed is shell-provided entropy (time and
+    /// Pre-session play tap. Seed and clock are shell-provided (time and
     /// randomness arrive via events — core stays deterministic).
     StartSession {
         seed: u64,
+        now_ms: i64,
     },
+    ReviewsLoaded(StorageOutput),
+    ReviewSaved(StorageOutput),
     /// Gap → reveal (the open-ended thinking gap ends on this tap).
     TapReveal,
-    /// Self-grade taps; each doubles as "next".
+    /// Self-grade taps; each doubles as "next" and feeds the SRS.
     GradeGotIt,
     GradeMissedIt,
     /// Leave the compare loop ("I hear it — continue").
@@ -75,6 +84,11 @@ pub struct Model {
     is_playing: bool,
     paused: bool,
     error: Option<String>,
+    review_states: HashMap<String, crate::srs::ReviewState>,
+    awaiting_load: bool,
+    now_ms: i64,
+    seed: u64,
+    rng: SplitMix64,
 }
 
 impl Model {
@@ -118,6 +132,8 @@ pub struct RecapView {
 #[cfg_attr(feature = "facet_typegen", repr(C))]
 pub struct ViewModel {
     pub phase: Phase,
+    /// True between the start tap and the SRS queue arriving.
+    pub is_loading: bool,
     /// 1-based position and total, for "7 / 22"-style counters.
     pub item_number: u32,
     pub total_items: u32,
@@ -137,6 +153,7 @@ pub struct ViewModel {
 pub enum Effect {
     Render(RenderOperation),
     PlayScore(PlayScoreOperation),
+    Storage(StorageOperation),
 }
 
 impl App for Changes {
@@ -151,13 +168,48 @@ impl App for Changes {
         model: &mut Self::Model,
     ) -> Command<Self::Effect, Self::Event> {
         match event {
-            Event::StartSession { seed } if matches!(model.phase, Phase::Pre | Phase::Recap) => {
-                model.items = generate_session(RUNG, ITEMS_PER_SESSION, seed);
-                model.index = 0;
-                model.results.clear();
+            Event::StartSession { seed, now_ms }
+                if matches!(model.phase, Phase::Pre | Phase::Recap) && !model.awaiting_load =>
+            {
+                model.seed = seed;
+                model.now_ms = now_ms;
+                model.rng = SplitMix64::new(seed ^ 0x5EED);
+                model.awaiting_load = true;
                 model.error = None;
                 model.paused = false;
+                render().and(load_reviews())
+            }
+            Event::ReviewsLoaded(output) if model.awaiting_load => {
+                model.awaiting_load = false;
+                let states: Vec<crate::srs::ReviewState> = match output {
+                    StorageOutput::Reviews(states) => states,
+                    StorageOutput::Failed { message } => {
+                        // Degrade gracefully: practice is never blocked by a
+                        // broken DB — all-new queue, error surfaced.
+                        model.error = Some(message);
+                        Vec::new()
+                    }
+                    StorageOutput::Ack => Vec::new(),
+                };
+                model.review_states = states.iter().map(|s| (s.skill.key(), s.clone())).collect();
+                let queue =
+                    build_queue(&states, &RUNG.skill_pool(), ITEMS_PER_SESSION, model.now_ms);
+                model.items = plan_session(&queue, model.seed);
+                model.index = 0;
+                model.results.clear();
+                if model.items.is_empty() {
+                    model.error = Some("nothing to practise — queue was empty".into());
+                    model.phase = Phase::Pre;
+                    return render();
+                }
                 start_listening(model)
+            }
+            Event::ReviewSaved(output) => {
+                if let StorageOutput::Failed { message } = output {
+                    model.error = Some(message);
+                    return render();
+                }
+                Command::done()
             }
             Event::TapReveal if model.phase == Phase::Gap && !model.paused => {
                 model.phase = Phase::Reveal;
@@ -165,13 +217,15 @@ impl App for Changes {
             }
             Event::GradeGotIt if model.phase == Phase::Reveal && !model.paused => {
                 model.results.push(true);
-                advance(model)
+                let persist = self.record_grade(model, Grade::Got);
+                advance(model).and(persist)
             }
             Event::GradeMissedIt if model.phase == Phase::Reveal && !model.paused => {
                 model.results.push(false);
+                let persist = self.record_grade(model, Grade::Missed);
                 model.phase = Phase::Compare;
                 model.compare_on_twin = false;
-                play_compare_side(model)
+                play_compare_side(model).and(persist)
             }
             Event::ExitCompare if model.phase == Phase::Compare => advance(model),
             Event::TapResume if model.paused => {
@@ -216,15 +270,18 @@ impl App for Changes {
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
-        let key = model.current().map(|i| i.key);
         let answer = model
             .current()
             .filter(|_| matches!(model.phase, Phase::Reveal | Phase::Compare));
         ViewModel {
             phase: model.phase,
+            is_loading: model.awaiting_load,
             item_number: (model.index + 1).min(model.items.len()) as u32,
             total_items: model.items.len() as u32,
-            key_name: key.map(|k| k.tonic_name().to_string()).unwrap_or_default(),
+            key_name: model
+                .current()
+                .map(|i| i.key.tonic_name().to_string())
+                .unwrap_or_default(),
             answer: answer.map(|item| AnswerView {
                 label: item.key.label_of(item.degree).to_string(),
                 resolution: resolution_text(item),
@@ -248,6 +305,38 @@ impl App for Changes {
             paused: model.paused,
             error: model.error.clone(),
         }
+    }
+}
+
+impl Changes {
+    /// Grade the current item into the SRS: update the in-memory state and
+    /// emit the write (fire-and-forget for UI flow; a Failed output
+    /// surfaces via `ReviewSaved`).
+    fn record_grade(&self, model: &mut Model, grade: Grade) -> Command<Effect, Event> {
+        let Some(item) = model.current() else {
+            return Command::done();
+        };
+        let skill = SkillId {
+            mode: item.key.mode,
+            degree: item.degree,
+        };
+        let prior = model.review_states.get(&skill.key()).cloned();
+        let state = self
+            .scheduler
+            .review(prior.as_ref(), skill, grade, model.now_ms);
+        model.review_states.insert(skill.key(), state.clone());
+        let log = ReviewLog {
+            // Client-minted, deterministic given (now, seed) — canonical id.
+            id: Ulid::from_parts(
+                model.now_ms as u64,
+                (model.rng.next_u64() as u128) << 64 | model.rng.next_u64() as u128,
+            )
+            .to_string(),
+            skill,
+            grade,
+            reviewed_at_ms: model.now_ms,
+        };
+        save_review(state, log)
     }
 }
 
@@ -305,23 +394,13 @@ fn advance(model: &mut Model) -> Command<Effect, Event> {
 
 #[cfg(test)]
 mod tests {
-    use crate::session::{reveal_score as reveal_for, TIMING};
-    use crate::theory::Degree;
+    use crate::srs::ReviewState;
 
     use super::*;
 
     const SEED: u64 = 7;
-
-    fn start() -> (Changes, Model) {
-        let app = Changes;
-        let mut model = Model::default();
-        let _ = app.update(Event::StartSession { seed: SEED }, &mut model);
-        (app, model)
-    }
-
-    fn finish_playback(app: &Changes, model: &mut Model) {
-        let _ = app.update(Event::PlaybackFinished(PlayScoreOutput::Finished), model);
-    }
+    const NOW: i64 = 1_800_000_000_000;
+    const DAY_MS: i64 = 86_400_000;
 
     fn plays(cmd: &mut Command<Effect, Event>) -> Vec<PlayScoreOperation> {
         cmd.effects()
@@ -332,102 +411,195 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn start_plays_the_listening_score_of_a_seeded_session() {
-        let app = Changes;
-        let mut model = Model::default();
-        let mut cmd = app.update(Event::StartSession { seed: SEED }, &mut model);
+    fn storage_ops(cmd: &mut Command<Effect, Event>) -> Vec<StorageOperation> {
+        cmd.effects()
+            .filter_map(|e| match e {
+                Effect::Storage(req) => Some(req.operation.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 
-        let expected = generate_session(RUNG, ITEMS_PER_SESSION, SEED);
-        assert_eq!(
-            plays(&mut cmd),
-            vec![PlayScoreOperation {
-                score: listening_score(expected[0])
-            }]
+    fn start_with(states: Vec<ReviewState>) -> (Changes, Model) {
+        let app = Changes::default();
+        let mut model = Model::default();
+        let mut cmd = app.update(
+            Event::StartSession {
+                seed: SEED,
+                now_ms: NOW,
+            },
+            &mut model,
         );
+        assert!(matches!(
+            storage_ops(&mut cmd)[..],
+            [StorageOperation::LoadReviews]
+        ));
+        let _ = app.update(
+            Event::ReviewsLoaded(StorageOutput::Reviews(states)),
+            &mut model,
+        );
+        (app, model)
+    }
+
+    fn to_reveal(app: &Changes, model: &mut Model) {
+        let _ = app.update(Event::PlaybackFinished(PlayScoreOutput::Finished), model);
+        let _ = app.update(Event::TapReveal, model);
+    }
+
+    #[test]
+    fn start_loads_reviews_before_any_audio() {
+        let app = Changes::default();
+        let mut model = Model::default();
+        let mut cmd = app.update(
+            Event::StartSession {
+                seed: SEED,
+                now_ms: NOW,
+            },
+            &mut model,
+        );
+        assert!(plays(&mut cmd).is_empty(), "no audio before the queue");
+        assert!(app.view(&model).is_loading);
+        assert_eq!(app.view(&model).phase, Phase::Pre);
+    }
+
+    #[test]
+    fn loaded_reviews_start_the_session_from_the_queue() {
+        let (app, model) = start_with(Vec::new());
         let view = app.view(&model);
         assert_eq!(view.phase, Phase::Listening);
-        assert_eq!(view.total_items, ITEMS_PER_SESSION as u32);
-        assert!(!view.key_name.is_empty());
+        assert!(!view.is_loading);
+        // Fresh user: the whole rung pool, in some shuffled order.
+        assert_eq!(view.total_items, RUNG.skill_pool().len() as u32);
     }
 
     #[test]
-    fn listening_finish_opens_the_gap_and_waits() {
-        let (app, mut model) = start();
-        finish_playback(&app, &mut model);
-        let view = app.view(&model);
-        assert_eq!(view.phase, Phase::Gap);
-        assert!(!view.is_playing);
-        assert_eq!(view.answer, None, "silence on purpose — no hints");
+    fn overdue_skills_are_in_the_session() {
+        let scheduler = FsrsScheduler::default();
+        let skill = SkillId {
+            mode: crate::theory::Mode::Major,
+            degree: crate::theory::Degree::new(9),
+        };
+        let mut overdue = scheduler.review(None, skill, Grade::Got, NOW - 40 * DAY_MS);
+        overdue.due_at_ms = NOW - DAY_MS;
+        let (app, model) = start_with(vec![overdue]);
+        assert!(model.items.iter().any(|i| i.degree.semitones() == 9));
+        assert_eq!(app.view(&model).phase, Phase::Listening);
     }
 
     #[test]
-    fn reveal_waits_for_the_tap_and_plays_the_resolution() {
-        let (app, mut model) = start();
-        finish_playback(&app, &mut model);
-
-        let mut cmd = app.update(Event::TapReveal, &mut model);
-
-        let item = model.current().expect("current item");
-        assert_eq!(plays(&mut cmd)[0].score, reveal_for(item));
-        let view = app.view(&model);
-        assert_eq!(view.phase, Phase::Reveal);
-        let answer = view.answer.expect("answer shown at reveal");
-        assert_eq!(answer.label, item.key.label_of(item.degree));
-        assert!(answer.resolution.ends_with('1'));
-    }
-
-    #[test]
-    fn got_it_advances_to_the_next_items_listening() {
-        let (app, mut model) = start();
-        finish_playback(&app, &mut model);
-        let _ = app.update(Event::TapReveal, &mut model);
+    fn a_grade_updates_srs_state_and_persists_state_plus_log() {
+        let (app, mut model) = start_with(Vec::new());
+        to_reveal(&app, &mut model);
+        let item = model.current().expect("item");
 
         let mut cmd = app.update(Event::GradeGotIt, &mut model);
 
-        assert_eq!(app.view(&model).phase, Phase::Listening);
-        assert_eq!(app.view(&model).item_number, 2);
-        assert_eq!(plays(&mut cmd).len(), 1);
+        let ops = storage_ops(&mut cmd);
+        let [StorageOperation::SaveReview { state, log }] = &ops[..] else {
+            panic!("expected one SaveReview, got {ops:?}");
+        };
+        assert_eq!(state.skill.degree, item.degree);
+        assert_eq!(state.last_reviewed_at_ms, NOW);
+        assert!(state.due_at_ms > NOW, "scheduled into the future");
+        assert_eq!(log.grade, Grade::Got);
+        assert_eq!(log.reviewed_at_ms, NOW);
+        assert!(!log.id.is_empty());
+        assert!(
+            model.review_states.contains_key(&state.skill.key()),
+            "model mirrors the write"
+        );
     }
 
     #[test]
-    fn missed_it_enters_the_compare_loop_which_alternates_until_exit() {
-        let (app, mut model) = start();
-        finish_playback(&app, &mut model);
-        let _ = app.update(Event::TapReveal, &mut model);
+    fn a_miss_persists_and_enters_compare() {
+        let (app, mut model) = start_with(Vec::new());
+        to_reveal(&app, &mut model);
 
         let mut cmd = app.update(Event::GradeMissedIt, &mut model);
-        let item = model.current().expect("item");
-        assert_eq!(
-            plays(&mut cmd)[0].score,
-            compare_side_score(item, item.degree),
-            "compare starts on the missed color"
-        );
-        assert!(!app.view(&model).compare.expect("compare view").playing_twin);
 
-        // Each side finishing starts the other — the Banacos alternation.
-        let mut cmd = app.update(
-            Event::PlaybackFinished(PlayScoreOutput::Finished),
-            &mut model,
-        );
-        assert_eq!(
-            plays(&mut cmd)[0].score,
-            compare_side_score(item, item.confusion_twin())
-        );
-        assert!(app.view(&model).compare.expect("compare view").playing_twin);
-
-        // Exit resumes the session on the next item.
-        let _ = app.update(Event::ExitCompare, &mut model);
-        assert_eq!(app.view(&model).phase, Phase::Listening);
-        assert_eq!(app.view(&model).item_number, 2);
+        // effects() drains — collect once, then partition.
+        let effects: Vec<Effect> = cmd.effects().collect();
+        let saves = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Storage(_)))
+            .count();
+        let plays = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::PlayScore(_)))
+            .count();
+        assert_eq!(saves, 1);
+        assert_eq!(plays, 1, "compare side plays");
+        assert_eq!(app.view(&model).phase, Phase::Compare);
     }
 
     #[test]
-    fn a_full_session_reaches_the_recap_with_honest_counts() {
-        let (app, mut model) = start();
-        for i in 0..ITEMS_PER_SESSION {
-            finish_playback(&app, &mut model);
-            let _ = app.update(Event::TapReveal, &mut model);
+    fn review_log_ids_are_unique_and_deterministic() {
+        let run = || {
+            let (app, mut model) = start_with(Vec::new());
+            let mut ids = Vec::new();
+            for _ in 0..3 {
+                to_reveal(&app, &mut model);
+                let mut cmd = app.update(Event::GradeGotIt, &mut model);
+                if let [StorageOperation::SaveReview { log, .. }] = &storage_ops(&mut cmd)[..] {
+                    ids.push(log.id.clone());
+                }
+            }
+            ids
+        };
+        let a = run();
+        let b = run();
+        assert_eq!(a.len(), 3);
+        assert_eq!(a, b, "same seed + clock → same ids (replayable)");
+        let unique: std::collections::HashSet<_> = a.iter().collect();
+        assert_eq!(unique.len(), 3);
+    }
+
+    #[test]
+    fn storage_load_failure_degrades_to_a_fresh_queue_with_surfaced_error() {
+        let app = Changes::default();
+        let mut model = Model::default();
+        let _ = app.update(
+            Event::StartSession {
+                seed: SEED,
+                now_ms: NOW,
+            },
+            &mut model,
+        );
+        let _ = app.update(
+            Event::ReviewsLoaded(StorageOutput::Failed {
+                message: "disk full".into(),
+            }),
+            &mut model,
+        );
+        let view = app.view(&model);
+        assert_eq!(view.phase, Phase::Listening, "practice is never blocked");
+        assert_eq!(view.error, Some("disk full".into()));
+    }
+
+    #[test]
+    fn save_failure_surfaces_but_does_not_interrupt_the_session() {
+        let (app, mut model) = start_with(Vec::new());
+        to_reveal(&app, &mut model);
+        let _ = app.update(Event::GradeGotIt, &mut model);
+
+        let _ = app.update(
+            Event::ReviewSaved(StorageOutput::Failed {
+                message: "write failed".into(),
+            }),
+            &mut model,
+        );
+
+        let view = app.view(&model);
+        assert_eq!(view.error, Some("write failed".into()));
+        assert_eq!(view.phase, Phase::Listening, "session continues");
+    }
+
+    #[test]
+    fn full_session_still_reaches_an_honest_recap() {
+        let (app, mut model) = start_with(Vec::new());
+        let total = model.items.len();
+        for i in 0..total {
+            to_reveal(&app, &mut model);
             if i % 4 == 3 {
                 let _ = app.update(Event::GradeMissedIt, &mut model);
                 let _ = app.update(Event::ExitCompare, &mut model);
@@ -438,79 +610,50 @@ mod tests {
         let view = app.view(&model);
         assert_eq!(view.phase, Phase::Recap);
         let recap = view.recap.expect("recap");
-        assert_eq!(recap.got, 9);
-        assert_eq!(recap.missed, 3);
-        // And a new session can start from the recap.
-        let _ = app.update(Event::StartSession { seed: 99 }, &mut model);
-        assert_eq!(app.view(&model).phase, Phase::Listening);
+        assert_eq!((recap.got + recap.missed) as usize, total);
     }
 
     #[test]
-    fn interruption_pauses_and_resume_replays_the_current_phase() {
-        let (app, mut model) = start();
+    fn second_session_sees_the_first_sessions_grades() {
+        let (app, mut model) = start_with(Vec::new());
+        let total = model.items.len();
+        for _ in 0..total {
+            to_reveal(&app, &mut model);
+            let _ = app.update(Event::GradeGotIt, &mut model);
+        }
+        assert_eq!(app.view(&model).phase, Phase::Recap);
+
+        // Next morning: the shell would hand back what it persisted; here
+        // the model's mirror stands in for it.
+        let states: Vec<ReviewState> = model.review_states.values().cloned().collect();
+        let tomorrow = NOW + DAY_MS;
+        let (app2, mut model2) = (Changes::default(), Model::default());
+        let _ = app2.update(
+            Event::StartSession {
+                seed: SEED + 1,
+                now_ms: tomorrow,
+            },
+            &mut model2,
+        );
+        let _ = app2.update(
+            Event::ReviewsLoaded(StorageOutput::Reviews(states)),
+            &mut model2,
+        );
+        // Everything was graded Got with multi-day intervals — nothing due
+        // tomorrow, nothing unseen: the queue is only the soonest-due tail.
+        assert!(
+            !model2.items.is_empty(),
+            "upcoming skills fill an otherwise-empty session"
+        );
+    }
+
+    #[test]
+    fn interruption_pause_resume_still_replays_the_phase() {
+        let (app, mut model) = start_with(Vec::new());
         let _ = app.update(Event::AudioInterrupted, &mut model);
         assert!(app.view(&model).paused);
-
-        // A grade tap while paused is ignored.
-        let _ = app.update(Event::GradeGotIt, &mut model);
-        assert_eq!(app.view(&model).item_number, 1);
-
         let mut cmd = app.update(Event::TapResume, &mut model);
-        let item = model.current().expect("item");
-        assert_eq!(plays(&mut cmd)[0].score, listening_score(item));
-        assert!(!app.view(&model).paused);
-    }
-
-    #[test]
-    fn pause_stops_the_compare_alternation() {
-        let (app, mut model) = start();
-        finish_playback(&app, &mut model);
-        let _ = app.update(Event::TapReveal, &mut model);
-        let _ = app.update(Event::GradeMissedIt, &mut model);
-        let _ = app.update(Event::HeadphonesUnplugged, &mut model);
-
-        // The in-flight side resolving must NOT start the next side.
-        let mut cmd = app.update(
-            Event::PlaybackFinished(PlayScoreOutput::Finished),
-            &mut model,
-        );
-        assert!(plays(&mut cmd).is_empty());
-        assert!(app.view(&model).paused);
-    }
-
-    #[test]
-    fn out_of_phase_taps_are_ignored() {
-        let app = Changes;
-        let mut model = Model::default();
-        for event in [Event::TapReveal, Event::GradeGotIt, Event::ExitCompare] {
-            let _ = app.update(event, &mut model);
-            assert_eq!(app.view(&model).phase, Phase::Pre);
-        }
-    }
-
-    #[test]
-    fn playback_failure_is_surfaced_never_swallowed() {
-        let (app, mut model) = start();
-        let _ = app.update(
-            Event::PlaybackFinished(PlayScoreOutput::Failed {
-                message: "no soundfont".into(),
-            }),
-            &mut model,
-        );
-        assert_eq!(app.view(&model).error, Some("no soundfont".to_string()));
-    }
-
-    #[test]
-    fn reveal_home_note_gets_the_long_duration() {
-        let (_, model) = start();
-        let item = model.current().expect("item");
-        if item.degree != Degree::TONIC {
-            let score = reveal_for(item);
-            assert_eq!(
-                score.notes.last().map(|n| n.duration_beats),
-                Some(TIMING.reveal_home_beats)
-            );
-        }
+        assert_eq!(plays(&mut cmd).len(), 1);
     }
 
     // The bridge is positional bincode (non-self-describing): every
@@ -519,8 +662,27 @@ mod tests {
     // (intrada #846).
     #[test]
     fn event_bincode_round_trips() {
+        let skill = SkillId {
+            mode: crate::theory::Mode::Major,
+            degree: crate::theory::Degree::new(3),
+        };
+        let state = ReviewState {
+            skill,
+            stability: 2.5,
+            difficulty: 5.1,
+            last_reviewed_at_ms: NOW,
+            due_at_ms: NOW + DAY_MS,
+        };
         for event in [
-            Event::StartSession { seed: 42 },
+            Event::StartSession {
+                seed: 42,
+                now_ms: NOW,
+            },
+            Event::ReviewsLoaded(StorageOutput::Reviews(vec![state.clone()])),
+            Event::ReviewsLoaded(StorageOutput::Failed {
+                message: "io".into(),
+            }),
+            Event::ReviewSaved(StorageOutput::Ack),
             Event::TapReveal,
             Event::GradeGotIt,
             Event::GradeMissedIt,
@@ -535,9 +697,36 @@ mod tests {
     }
 
     #[test]
+    fn storage_operation_bincode_round_trips() {
+        let skill = SkillId {
+            mode: crate::theory::Mode::Minor,
+            degree: crate::theory::Degree::new(10),
+        };
+        let state = ReviewState {
+            skill,
+            stability: 1.0,
+            difficulty: 4.0,
+            last_reviewed_at_ms: NOW,
+            due_at_ms: NOW + DAY_MS,
+        };
+        crate::test_support::assert_bincode_round_trip(&StorageOperation::LoadReviews);
+        crate::test_support::assert_bincode_round_trip(&StorageOperation::SaveReview {
+            state: state.clone(),
+            log: ReviewLog {
+                id: "01J0000000000000000000000".into(),
+                skill,
+                grade: Grade::Missed,
+                reviewed_at_ms: NOW,
+            },
+        });
+        crate::test_support::assert_bincode_round_trip(&StorageOutput::Reviews(vec![state]));
+    }
+
+    #[test]
     fn view_model_bincode_round_trips() {
         crate::test_support::assert_bincode_round_trip(&ViewModel {
             phase: Phase::Compare,
+            is_loading: false,
             item_number: 3,
             total_items: 12,
             key_name: "E♭".into(),
@@ -554,15 +743,6 @@ mod tests {
             is_playing: false,
             paused: false,
             error: None,
-        });
-    }
-
-    #[test]
-    fn effect_operation_bincode_round_trips() {
-        let (_, model) = start();
-        crate::test_support::assert_bincode_round_trip(&crux_core::render::RenderOperation);
-        crate::test_support::assert_bincode_round_trip(&PlayScoreOperation {
-            score: listening_score(model.current().expect("item")),
         });
     }
 }

@@ -13,9 +13,11 @@ final class Store {
   private let bridge: CoreBridge
   private let player = ScorePlayer()
   private let audioSession = AudioSessionMonitor()
+  private let reviews: ReviewStore
 
-  init(bridge: CoreBridge = LiveBridge()) {
+  init(bridge: CoreBridge = LiveBridge(), reviews: ReviewStore = InMemoryReviewStore()) {
     self.bridge = bridge
+    self.reviews = reviews
     self.viewModel = guarded { try bridge.view() }
     audioSession.onInterruption = { [weak self] in self?.pausePlayback(.audioInterrupted) }
     audioSession.onHeadphonesUnplugged = { [weak self] in
@@ -40,8 +42,28 @@ final class Store {
         refreshView()
       case .playScore(let operation):
         handlePlayScore(operation, id: request.id)
+      case .storage(let operation):
+        handleStorage(operation, id: request.id)
       }
     }
+  }
+
+  private func handleStorage(_ operation: StorageOperation, id: UInt32) {
+    let output: StorageOutput
+    do {
+      switch operation {
+      case .loadReviews:
+        output = .reviews(try reviews.load())
+      case .saveReview(let state, let log):
+        try reviews.save(state: state, log: log)
+        output = .ack
+      }
+    } catch {
+      // A failed local write is never a silent success — the core surfaces
+      // this in ViewModel.error.
+      output = .failed(message: String(describing: error))
+    }
+    process(guarded { try bridge.resolve(id, storageOutput: output) } ?? [])
   }
 
   private func handlePlayScore(_ operation: PlayScoreOperation, id: UInt32) {
