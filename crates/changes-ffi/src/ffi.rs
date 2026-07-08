@@ -65,17 +65,21 @@ mod tests {
 
     use super::*;
 
-    // The real-bridge round trip M0 exists to prove: Event::Ping in over the
-    // wire format, effects + ViewModel back out — same path the shell takes.
+    // The real-bridge round trip: an event in over the wire format, effects
+    // + ViewModel back out — the same path the shell takes.
     #[test]
-    fn ping_round_trips_through_the_bridge() {
+    fn tap_round_trips_through_the_bridge() {
         let core = CoreFFI::new();
 
-        let event = bincode::serialize(&Event::Ping).unwrap();
+        let event = bincode::serialize(&Event::TapNext).unwrap();
         let effects = core.update(&event).unwrap();
-        assert!(!effects.is_empty(), "Ping must request a render effect");
+        assert!(
+            !effects.is_empty(),
+            "TapNext must request render + play effects"
+        );
 
         let view: ViewModel = bincode::deserialize(&core.view().unwrap()).unwrap();
-        assert_eq!(view.pong_count, 1);
+        assert_eq!(view.phase, changes_core::Phase::Context);
+        assert!(view.is_playing);
     }
 }

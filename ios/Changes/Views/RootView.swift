@@ -1,56 +1,108 @@
 import SharedTypes
 import SwiftUI
 
-/// M0 walking skeleton: proves Event::Ping → core → ViewModel through the
-/// real bridge, wearing the design tokens. Replaced by the Pocket Session
-/// surfaces from M3.
+/// M1 audio-spike surface: one deliberate tap per phase (context → question
+/// → reveal), answer shown at reveal only. Exists to run the M1 exit
+/// criteria on a device; M3 replaces it with the Pocket Session screens.
 struct RootView: View {
   @Environment(Store.self) private var store
 
+  private var phaseLabel: String {
+    guard let vm = store.viewModel else { return "" }
+    if vm.paused { return "paused" }
+    return switch vm.phase {
+    case .idle: "tap to begin"
+    case .context: "listen — establishing E♭"
+    case .question: "quality of this chord?"
+    case .reveal: "it was"
+    }
+  }
+
+  private var tapPrompt: String {
+    guard let vm = store.viewModel else { return "" }
+    if vm.paused { return "tap to resume — replays this item" }
+    return switch vm.phase {
+    case .idle: "tap to start"
+    case .context: "tap for the question"
+    case .question: "tap to reveal"
+    case .reveal: "tap for the next item"
+    }
+  }
+
   var body: some View {
-    VStack(spacing: 32) {
+    VStack(spacing: 24) {
+      header
+
       Spacer()
 
-      Text("Changes")
+      Text(phaseLabel)
         .changesOverline()
-        .accessibilityAddTraits(.isHeader)
 
-      Text("learn to hear changes")
-        .font(ChangesFont.musicAccentLine)
-        .foregroundStyle(ChangesColor.accent)
-
-      Button {
-        store.send(.ping)
-      } label: {
-        Text("Ping the core")
-          .font(ChangesFont.uiButton)
+      if let answer = store.viewModel?.answer {
+        Text(answer)
+          .font(ChangesFont.musicChordSymbol())
+          .tracking(-90 * 0.02)
           .foregroundStyle(ChangesColor.textPrimary)
-          .padding(.horizontal, 28)
-          .padding(.vertical, 14)
-          .background(
-            Capsule()
-              .fill(ChangesColor.surface)
-              .overlay(Capsule().strokeBorder(ChangesColor.accentBorder))
-          )
+          .accessibilityLabel("The chord was \(answer)")
       }
-      .changesAccentGlow()
-      .accessibilityHint("Sends a test event through the Rust core")
 
-      Text("pongs: \(store.viewModel?.pongCount ?? 0)")
-        .font(ChangesFont.uiCounter)
-        .foregroundStyle(ChangesColor.textSecondary)
-        .accessibilityLabel("Pong count \(store.viewModel?.pongCount ?? 0)")
+      if store.viewModel?.isPlaying == true {
+        Text("playing…")
+          .font(ChangesFont.uiCounter)
+          .foregroundStyle(ChangesColor.accent)
+      }
 
-      if let error = store.error {
+      if let error = store.error ?? store.viewModel?.error {
         Text(error)
           .font(ChangesFont.uiBody)
           .foregroundStyle(ChangesColor.Tension.flat9)
+          .multilineTextAlignment(.center)
       }
 
       Spacer()
+
+      tapZone
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding(.horizontal, ChangesSpacing.screenPadding)
     .background(ChangesColor.background.ignoresSafeArea())
+  }
+
+  private var header: some View {
+    HStack {
+      Text("Changes")
+        .changesOverline()
+        .accessibilityAddTraits(.isHeader)
+      Spacer()
+      if let vm = store.viewModel, vm.phase != .idle {
+        Text("item \(vm.itemNumber)")
+          .font(ChangesFont.uiCounter)
+          .foregroundStyle(ChangesColor.textTertiary)
+      }
+    }
+    .padding(.top, 8)
+  }
+
+  private var tapZone: some View {
+    Button {
+      store.send(.tapNext)
+    } label: {
+      Text(tapPrompt)
+        .font(ChangesFont.uiButton)
+        .foregroundStyle(ChangesColor.textPrimary)
+        .frame(maxWidth: .infinity, minHeight: ChangesSpacing.answerZoneHeight)
+        .background(
+          RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+            .fill(ChangesColor.surface)
+            .overlay(
+              RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+                .strokeBorder(
+                  store.viewModel?.paused == true
+                    ? ChangesColor.Tension.flat13 : ChangesColor.accentBorder)
+            )
+        )
+    }
+    .changesAccentGlow()
+    .padding(.bottom, 16)
+    .accessibilityHint("Advances the session one step and plays audio")
   }
 }

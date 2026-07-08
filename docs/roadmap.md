@@ -36,6 +36,16 @@ Workflow → Always).
       sample-accurate tap-driven playback; interruption + route-change
       handling. **Make-or-break; go/no-go gate before any feature work**
       (exit criteria in the plan)
+  - [x] Pipeline code (2026-07-08): `PlayScore` effect + spike session
+        machine in core (tap-paced context → question → reveal over E♭
+        chords, effect-level tests); shell `ScorePlayer`
+        (AVAudioSequencer-pre-scheduled sampler + GeneralUser GS SoundFont),
+        `.playback` session, interruption + route-change → pause events;
+        verified on-sim (`--spike-autotap` soak harness, no errors)
+  - [ ] **The gate itself**: Jon runs the exit criteria on a real device —
+        headphones, 5+ min back-to-back tap-driven playback, no
+        glitches/drift; Siri/call interruption and headphones-unplugged
+        pause correctly. Go/no-go before M2.
 
 ## Phase 1 — MVP: Pocket Session, Levels 0–2
 

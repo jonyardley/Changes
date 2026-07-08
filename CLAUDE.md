@@ -2,7 +2,7 @@
 
 > Last reviewed: 2026-07-07.
 
-> ## ⚠️ PROJECT STATUS: M0 complete — next M1 (audio spike, the go/no-go gate)
+> ## ⚠️ PROJECT STATUS: M1 code landed — the device gate (go/no-go) is pending
 >
 > What exists: product docs (`docs/`), a completed Claude Design pass
 > (`design/` — read `design/README.md`), the implementation plan
@@ -11,10 +11,14 @@
 > `crates/changes-core`, strict lints, cargo-deny, CI, justfile — run
 > `just setup` once per clone), and the **iOS scaffold** (xcodegen project
 > in `ios/`, `Theme.swift` token sheet + bundled fonts, uniffi + facet
-> typegen bindings proving `Event::Ping → ViewModel` through the real
-> bridge, iOS CI job in CI OK's `needs`; `just ios-run` launches it).
-> **Next: M1 (audio spike — the explicit go/no-go gate; exit criteria need
-> a real device).** Architecture carries lessons from
+> typegen bindings, iOS CI job in CI OK's `needs`; `just ios-run` launches
+> it), and the **M1 audio pipeline** (core `PlayScore` effect + tap-paced
+> spike session machine; shell `ScorePlayer` — AVAudioSequencer-scheduled
+> SoundFont sampler, `.playback` session, interruption/route-change →
+> pause events; `--spike-autotap` launch arg soak-tests it hands-free).
+> **Next: Jon runs the M1 exit criteria on a real device (the go/no-go
+> gate) — nothing else gets built until that passes.** Architecture
+> carries lessons from
 > [intrada](https://github.com/jonyardley/intrada) (same Crux + SwiftUI
 > stack). As code lands, update this banner and replace "planned" sections
 > with reality. When docs and code disagree, the code is reality and this
