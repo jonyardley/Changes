@@ -61,8 +61,12 @@ Sonofield for a jazz user on its own. Build order and decisions:
       ii–V–I / iiø–V–i cadence voicings, and Benbassat resolution paths
       (shortest-way-home direction rule, one tunable seam —
       `crates/changes-core/src/theory/`)
-- [ ] Exercise generator + session state machine (context → question →
-      thinking gap → reveal; Banacos error loop)
+- [x] Exercise generator + session state machine (2026-07-08): seeded
+      deterministic generator (rungs 0–2 pools, one key per session, no
+      back-to-back repeats), `pre → [listening → gap → reveal →
+      (compare)]* → recap` machine — manual pacing, Banacos A/B compare
+      loop with fixed confusion twins, aural reveal = resolution-path
+      playback, pause/resume replays the phase. Replaced the M1 spike app.
 - [ ] SRS scheduler (FSRS-style) + GRDB persistence (sync-ready schema)
 - [ ] Pocket Session UI: pre-session, in-session states, on-screen touch
       pacing (tap to start, tap to reveal, tap to grade — the grade tap

@@ -68,18 +68,19 @@ mod tests {
     // The real-bridge round trip: an event in over the wire format, effects
     // + ViewModel back out — the same path the shell takes.
     #[test]
-    fn tap_round_trips_through_the_bridge() {
+    fn start_session_round_trips_through_the_bridge() {
         let core = CoreFFI::new();
 
-        let event = bincode::serialize(&Event::TapNext).unwrap();
+        let event = bincode::serialize(&Event::StartSession { seed: 42 }).unwrap();
         let effects = core.update(&event).unwrap();
         assert!(
             !effects.is_empty(),
-            "TapNext must request render + play effects"
+            "StartSession must request render + play effects"
         );
 
         let view: ViewModel = bincode::deserialize(&core.view().unwrap()).unwrap();
-        assert_eq!(view.phase, changes_core::Phase::Context);
+        assert_eq!(view.phase, changes_core::Phase::Listening);
         assert!(view.is_playing);
+        assert!(!view.key_name.is_empty());
     }
 }
