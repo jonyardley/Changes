@@ -6,6 +6,7 @@ pub mod audio;
 pub mod spike;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod theory;
 
 pub use app::{Changes, Effect, Event, Model, Phase, ViewModel};
 pub use audio::{PlayScoreOperation, PlayScoreOutput, Score, ScoreNote};

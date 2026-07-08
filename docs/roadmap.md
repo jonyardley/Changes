@@ -45,7 +45,9 @@ Workflow → Always).
   - [ ] **The gate itself**: Jon runs the exit criteria on a real device —
         headphones, 5+ min back-to-back tap-driven playback, no
         glitches/drift; Siri/call interruption and headphones-unplugged
-        pause correctly. Go/no-go before M2.
+        pause correctly. *2026-07-08: Jon reviewed the spike on the
+        simulator and chose to press on with core work in parallel; the
+        device pass remains outstanding and still gates M3 UI investment.*
 
 ## Phase 1 — MVP: Pocket Session, Levels 0–2
 
@@ -54,8 +56,11 @@ step a tap: start, reveal, grade). Beats Functional Ear Trainer +
 Sonofield for a jazz user on its own. Build order and decisions:
 `docs/specs/mvp-plan.md` (milestones M2–M6).
 
-- [ ] Theory engine v1: keys, cadences, scale degrees (major/minor,
-      chromatic)
+- [x] Theory engine v1 (2026-07-08): pitch classes, major/minor keys, the
+      12 chromatic degree colors with per-mode labels, transposable
+      ii–V–I / iiø–V–i cadence voicings, and Benbassat resolution paths
+      (shortest-way-home direction rule, one tunable seam —
+      `crates/changes-core/src/theory/`)
 - [ ] Exercise generator + session state machine (context → question →
       thinking gap → reveal; Banacos error loop)
 - [ ] SRS scheduler (FSRS-style) + GRDB persistence (sync-ready schema)
