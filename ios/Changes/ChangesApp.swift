@@ -18,14 +18,26 @@ struct ChangesApp: App {
   }
 
   /// Debug soak harness, NOT a product mode (the product is manually paced,
-  /// mvp-plan decision 9): `--spike-autotap` fires TapNext on a loop so the
-  /// M1 exit criteria (5+ minutes of back-to-back playback) can run
-  /// unattended on a device, and CI/sim checks can drive the audio path.
+  /// mvp-plan decision 9): `--spike-autotap` walks whole sessions unattended
+  /// (misses every 4th item to exercise the compare loop) so the M1 device
+  /// soak and sim checks can drive the audio path hands-free.
   private func autotapIfRequested() async {
     guard ProcessInfo.processInfo.arguments.contains("--spike-autotap") else { return }
     while !Task.isCancelled {
-      store.send(.tapNext)
-      try? await Task.sleep(nanoseconds: 3_500_000_000)
+      switch store.viewModel?.phase {
+      case .pre, .recap:
+        store.send(.startSession(seed: 2_026_07_08))
+      case .gap:
+        store.send(.tapReveal)
+      case .reveal:
+        let missIt = store.viewModel.map { $0.itemNumber % 4 == 0 } ?? false
+        store.send(missIt ? .gradeMissedIt : .gradeGotIt)
+      case .compare:
+        store.send(.exitCompare)
+      case .listening, .none:
+        break
+      }
+      try? await Task.sleep(nanoseconds: 2_500_000_000)
     }
   }
 }
