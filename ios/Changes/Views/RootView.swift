@@ -72,6 +72,11 @@ struct RootView: View {
             .foregroundStyle(ChangesColor.Tension.flat9)
             .multilineTextAlignment(.center)
         }
+        if store.degraded {
+          Text("storage unavailable — this session won't be remembered")
+            .font(ChangesFont.uiCounter)
+            .foregroundStyle(ChangesColor.Tension.flat13)
+        }
       }
     }
   }

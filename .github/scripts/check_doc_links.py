@@ -7,7 +7,9 @@ import re
 import sys
 from pathlib import Path
 
-SKIP_DIRS = {".git", "target", "node_modules", ".build", "DerivedData"}
+# "build" covers ios/build (SPM checkouts + DerivedData) — third-party docs
+# aren't ours to lint.
+SKIP_DIRS = {".git", "target", "node_modules", ".build", "build", "DerivedData", "generated"}
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 CONFLICT = re.compile(r"^(<{7} |>{7} )")
 EXTERNAL = ("http://", "https://", "mailto:", "tel:")

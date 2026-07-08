@@ -54,8 +54,9 @@ Workflow → Always).
         headphones, 5+ min back-to-back tap-driven playback, no
         glitches/drift; Siri/call interruption and headphones-unplugged
         pause correctly. *2026-07-08: Jon reviewed the spike on the
-        simulator and chose to press on with core work in parallel; the
-        device pass remains outstanding and still gates M3 UI investment.*
+        simulator and chose to press on with core work in parallel.
+        Decision (2026-07-08): parked until the first TestFlight build —
+        run the exit criteria then, before M3 UI investment.*
 
 ## Phase 1 — MVP: Pocket Session, Levels 0–2
 
@@ -83,8 +84,11 @@ Sonofield for a jazz user on its own. Build order and decisions:
         typed `Storage` effects (load-before-audio, fire-and-forget saves,
         failures surfaced); deterministic ulid review logs. Shell fulfils
         storage with an in-memory store for now.
-  - [ ] Shell half: GRDB store executing the storage effects, migration v1
-        per the spec schema, populated-at-previous-version upgrade test.
+  - [x] Shell half (2026-07-08): `GrdbReviewStore` (GRDB 7.11, synchronous
+        by recorded decision, upserts + tombstone-filtered reads, degraded
+        in-memory fallback surfaced in UI), migration v1 per the spec
+        schema, `ChangesTests` target (store round-trip + skill-key codec +
+        populated-at-v1 upgrade test) run by `just ios-test` and CI.
 - [ ] Pocket Session UI: pre-session, in-session states, on-screen touch
       pacing (tap to start, tap to reveal, tap to grade — the grade tap
       advances; no timers, no auto-continue), aural + on-screen reveal
