@@ -4,6 +4,7 @@
 pub mod app;
 pub mod audio;
 pub mod spike;
+pub mod theory;
 #[cfg(test)]
 pub(crate) mod test_support;
 
