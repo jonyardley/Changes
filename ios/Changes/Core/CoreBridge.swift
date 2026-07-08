@@ -4,5 +4,6 @@ import SharedTypes
 /// replaces for tests and previews.
 protocol CoreBridge {
   func update(_ event: Event) throws -> [Request]
+  func resolve(_ id: UInt32, playScoreOutput: PlayScoreOutput) throws -> [Request]
   func view() throws -> ViewModel
 }
