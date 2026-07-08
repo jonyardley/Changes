@@ -17,6 +17,9 @@ packages:
     path: generated/ChangesCoreFFI # local, gitignored — from `just ios-gen`
   SharedTypes:
     path: generated/SharedTypes # local, gitignored — from facet typegen
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    exactVersion: "7.11.0"
 
 targets:
   Changes:
@@ -35,3 +38,20 @@ targets:
         product: ChangesCoreFFI
       - package: SharedTypes
         product: SharedTypes
+      - package: GRDB
+        product: GRDB
+    scheme:
+      testTargets:
+        - ChangesTests
+
+  ChangesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ChangesTests
+    dependencies:
+      - target: Changes
+      - package: SharedTypes
+        product: SharedTypes
+      - package: GRDB
+        product: GRDB

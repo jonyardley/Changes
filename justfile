@@ -79,6 +79,25 @@ ios-build: _ios-sync
         -derivedDataPath build/dd -clonedSourcePackagesDirPath build/spm -quiet \
         COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
 
+# Build + run the ChangesTests suite on a dedicated simulator (created on
+# first use, reused after; never hijacks a booted sim — CLAUDE.md rule).
+ios-test: _ios-sync
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd ios
+    xcodegen generate
+    UDID=$(xcrun simctl list devices --json | python3 -c "
+    import json, sys
+    devices = json.load(sys.stdin)['devices']
+    print(next((d['udid'] for ds in devices.values() for d in ds
+                if d['name'] == 'changes-test-sim'), ''))
+    ")
+    [ -n "$UDID" ] || UDID=$(xcrun simctl create changes-test-sim "iPhone 16")
+    xcodebuild test -project Changes.xcodeproj -scheme Changes -sdk iphonesimulator \
+        -destination "id=$UDID" -derivedDataPath build/dd \
+        -clonedSourcePackagesDirPath build/spm -quiet \
+        COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
+
 # Facet typegen → ios/generated/SharedTypes.
 ios-typegen:
     # Pre-clean so a renamed/removed type can't leave an orphan Swift file.

@@ -191,8 +191,10 @@ jobs:
           key: ios-dd-v1-${{ runner.os }}-${{ hashFiles('ios/project.yml', 'ios/Changes/**') }}
           restore-keys: |
             ios-dd-v1-${{ runner.os }}-
-      - name: Build the app (simulator)
-        run: just ios-build
+      # Builds the app + test bundle and runs ChangesTests (store round-trip
+      # + migration upgrade tests) on a dedicated simulator.
+      - name: Build + test (simulator)
+        run: just ios-test
       - name: Save iOS DerivedData (main only)
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

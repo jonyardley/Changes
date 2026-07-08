@@ -10,14 +10,28 @@ final class Store {
   private(set) var viewModel: ViewModel?
   private(set) var error: String?
 
+  /// True when the on-disk store couldn't open and reviews won't survive
+  /// relaunch — surfaced in the UI, never silent.
+  let degraded: Bool
+
   private let bridge: CoreBridge
   private let player = ScorePlayer()
   private let audioSession = AudioSessionMonitor()
   private let reviews: ReviewStore
 
-  init(bridge: CoreBridge = LiveBridge(), reviews: ReviewStore = InMemoryReviewStore()) {
+  init(bridge: CoreBridge = LiveBridge(), reviews: ReviewStore? = nil) {
     self.bridge = bridge
-    self.reviews = reviews
+    if let reviews {
+      self.reviews = reviews
+      self.degraded = false
+    } else {
+      let opened = try? GrdbReviewStore.onDisk()
+      // In-memory GRDB keeps this launch fully functional; `degraded`
+      // tells the user history won't stick.
+      self.reviews =
+        opened ?? (try? GrdbReviewStore.inMemory()) ?? FailingReviewStore()
+      self.degraded = opened == nil
+    }
     self.viewModel = guarded { try bridge.view() }
     audioSession.onInterruption = { [weak self] in self?.pausePlayback(.audioInterrupted) }
     audioSession.onHeadphonesUnplugged = { [weak self] in
