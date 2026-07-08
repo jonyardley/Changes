@@ -55,6 +55,12 @@ ios-run: _ios-sync
     cd ios && xcodegen generate
     bash scripts/ios-run-sim.sh
 
+# Signed Release .ipa -> TestFlight (needs env from docs/RELEASING.md).
+testflight: ios-typegen (ios-package "release")
+    cd ios && xcodegen generate
+    rm -f ios/generated/.gen-stamp
+    bundle exec fastlane ios beta
+
 # Stream app logs from the booted sim, filtered to our subsystem.
 ios-logs:
     xcrun simctl spawn booted log stream --predicate 'subsystem == "com.changes.app"'

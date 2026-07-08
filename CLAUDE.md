@@ -121,6 +121,7 @@ just ci                    # full CI mirror: fmt-check, clippy, test, deny, link
 just pre-push              # fast gates (fmt-check + clippy + test) — the hook runs this
 just fmt / clippy / test / deny / links   # individual gates
 just ios / ios-run / ios-gen / ios-logs   # Xcode / sim launch / bindings / logs
+just testflight            # signed .ipa -> TestFlight (setup: docs/RELEASING.md)
 ```
 
 `just ci` mirrors every CI gate (gitleaks is skipped with a warning if the

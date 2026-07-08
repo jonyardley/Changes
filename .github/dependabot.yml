@@ -26,5 +26,8 @@ updates:
       # break both the API and the format; revisit when crux migrates.
       - dependency-name: "bincode"
         update-types: ["version-update:semver-major"]
-    # When uniffi lands (M0-iOS): pin + ignore uniffi* here too — it must
-    # match cargo-swift's bundled bindgen (intrada #966/#968).
+      # uniffi is exact-pinned to match cargo-swift 0.9.0's bundled bindgen
+      # (intrada #966/#968); bump the pair by hand, in lockstep, never solo.
+      - dependency-name: "uniffi"
+      - dependency-name: "uniffi-*"
+      - dependency-name: "uniffi_*"

@@ -1,0 +1,80 @@
+name: Release — TestFlight
+
+# Signed device build → TestFlight. Manual or on a v* tag ONLY — never
+# per-PR (macOS runners are 10×-billed). Setup + secrets: docs/RELEASING.md.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+# Don't cancel an in-flight upload if another tag/dispatch lands.
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  testflight:
+    name: Build + upload to TestFlight
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Pin Xcode 26.5 to match the ios CI job.
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: "26.5"
+      # rustup reads rust-toolchain.toml (pinned version + iOS targets) —
+      # no separately-pinned RUST_VERSION to drift.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: "release-testflight"
+          cache-on-failure: true
+      - name: Install just + xcodegen
+        run: brew install just xcodegen
+      - name: Cache cargo-swift
+        id: cargo-swift-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-swift
+          key: cargo-swift-0.9.0-${{ runner.os }}-${{ runner.arch }}
+      # Pinned 0.9.0 — its bundled uniffi-bindgen matches our uniffi crate's
+      # runtime contract. Bump in lockstep with uniffi (see ci.yml).
+      - name: Install cargo-swift
+        if: steps.cargo-swift-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-swift --version "=0.9.0" --locked
+      # RELEASE core (debug cores are 10-100× slower in audio hot paths).
+      # cargo-swift --platforms ios emits the aarch64-apple-ios device slice
+      # the archive needs.
+      - name: Regenerate Swift bindings (release core)
+        run: |
+          just ios-typegen
+          just ios-package release
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+      - uses: ruby/setup-ruby@d45b1a4e94b71acab930e56e79c6aa188764e7f9 # v1.316.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Build + upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT_BASE64: ${{ secrets.ASC_KEY_CONTENT_BASE64 }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bundle exec fastlane ios beta
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: changes-ipa
+          path: build/*.ipa
+          retention-days: 14
+          if-no-files-found: ignore

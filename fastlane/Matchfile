@@ -1,0 +1,8 @@
+# Code-signing identity storage (see docs/RELEASING.md). The git_url points
+# at a PRIVATE certs repo you create once. CI authenticates via
+# MATCH_GIT_BASIC_AUTHORIZATION; decryption via MATCH_PASSWORD.
+git_url(ENV.fetch("MATCH_GIT_URL", "https://github.com/jonyardley/changes-certificates.git"))
+storage_mode("git")
+
+type("appstore")
+app_identifier(["com.changes.app"])

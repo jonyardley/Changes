@@ -1,0 +1,5 @@
+app_identifier("com.changes.app")
+team_id("9S5FG4LQAF")
+
+# apple_id / itc_team_id intentionally omitted — the App Store Connect API
+# key supplies the account/team context (see docs/RELEASING.md).

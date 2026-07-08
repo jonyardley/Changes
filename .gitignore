@@ -21,6 +21,11 @@ xcuserdata/
 ios/generated/
 crates/changes-ffi/generated/
 
+# fastlane output
+fastlane/report.xml
+fastlane/README.md
+/build/
+
 # Environment
 .env
 .env.local

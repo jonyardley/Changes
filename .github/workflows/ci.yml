@@ -25,6 +25,31 @@ permissions:
 # github-actions ecosystem maintains these pins.
 
 jobs:
+  # Path filter: the macOS job is 10×-billed — skip it on PRs that can't
+  # affect the app (docs-only, dependabot actions bumps). Non-PR events
+  # (push/schedule/dispatch) always run everything; ci-ok verifies a skip
+  # was legitimately filtered, so this can't hide a real failure.
+  changes:
+    name: Path changes
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        with:
+          filters: |
+            ios:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'crates/**'
+              - 'ios/**'
+              - 'scripts/ios-run-sim.sh'
+              - 'justfile'
+              - '.github/workflows/ci.yml'
+
   docs:
     name: Docs sanity
     runs-on: ubuntu-latest
@@ -111,6 +136,8 @@ jobs:
     name: iOS (bindings + build)
     runs-on: macos-26
     timeout-minutes: 40
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.ios == 'true'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
@@ -153,20 +180,60 @@ jobs:
           key: ios-spm-v1-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
           restore-keys: |
             ios-spm-v1-${{ runner.os }}-
+      # Split restore/save: only main writes this cache; PRs restore main's
+      # DerivedData (which already holds the compiled deps) and skip the
+      # write. (NOT `save-if:` — that input belongs to rust-cache; on
+      # actions/cache it is silently ignored.)
+      - name: Restore iOS DerivedData
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/dd
+          key: ios-dd-v1-${{ runner.os }}-${{ hashFiles('ios/project.yml', 'ios/Changes/**') }}
+          restore-keys: |
+            ios-dd-v1-${{ runner.os }}-
       - name: Build the app (simulator)
         run: just ios-build
+      - name: Save iOS DerivedData (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/dd
+          key: ios-dd-v1-${{ runner.os }}-${{ hashFiles('ios/project.yml', 'ios/Changes/**') }}
+      # Boot-through-the-FFI smoke + a visual artifact per merge: the build
+      # proves linking; launching proves the bridge loads and renders.
+      - name: Launch on simulator + screenshot
+        if: github.event_name == 'push'
+        run: REUSE_BUILD=1 bash scripts/ios-run-sim.sh "$GITHUB_WORKSPACE/ios-screenshots/changes.png"
+      - name: Upload screenshot
+        if: always() && github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-screenshot
+          path: ios-screenshots/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ── The one required status check ──────────────────────────────────────
   # Branch protection requires exactly this job ("CI OK") and nothing else.
   # When adding jobs, list them in `needs` — protection never changes.
+  # `ios` is the one job allowed to skip, and ONLY when the path filter
+  # says the PR can't affect it — a skip for any other reason still fails.
   ci-ok:
     name: CI OK
     runs-on: ubuntu-latest
-    needs: [docs, fmt, clippy, test, deny, gitleaks, ios]
+    needs: [changes, docs, fmt, clippy, test, deny, gitleaks, ios]
     if: always()
     steps:
       - name: All needed jobs succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          IOS_FILTERED: ${{ github.event_name == 'pull_request' && needs.changes.outputs.ios != 'true' }}
         run: |
-          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
-            echo 'A required job failed, was cancelled, or was skipped'; exit 1
+          echo "$RESULTS" | jq -e '
+            to_entries | map(select(.key != "ios"))
+            | all(.value.result == "success")
+          ' >/dev/null || { echo '::error::a required job failed, was cancelled, or was skipped'; exit 1; }
+          ios=$(echo "$RESULTS" | jq -r '.ios.result')
+          if [ "$ios" != "success" ] && ! { [ "$ios" = "skipped" ] && [ "$IOS_FILTERED" = "true" ]; }; then
+            echo "::error::ios result=$ios and the skip was not a legitimate path filter"; exit 1
           fi

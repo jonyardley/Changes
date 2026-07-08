@@ -32,6 +32,14 @@ Workflow → Always).
         core (content-addressed cache — staleness impossible by
         construction, no committed bindings to diff) + building the app,
         added to CI OK's `needs` (2026-07-07)
+- [x] CD — TestFlight lane (2026-07-08, mvp-plan M6 item pulled forward):
+      fastlane match + `release-testflight.yml` (v* tag / manual dispatch,
+      signed release-core .ipa → TestFlight, never per-PR); CI hardening in
+      the same pass (path-filtered macOS job with a strict CI OK check,
+      DerivedData restore/save, per-merge launch screenshot artifact,
+      dependabot uniffi lockstep ignore). One-time signing bootstrap +
+      secrets: `docs/RELEASING.md` — **the lane is dormant until Jon adds
+      the six secrets**.
 - [ ] M1 — Audio spike: `PlayScore` → AVAudioEngine sampler; glitch-free,
       sample-accurate tap-driven playback; interruption + route-change
       handling. **Make-or-break; go/no-go gate before any feature work**
