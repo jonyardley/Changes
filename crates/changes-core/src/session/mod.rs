@@ -5,6 +5,6 @@ pub mod item;
 pub mod scores;
 pub mod timing;
 
-pub use item::{generate_session, Item, Rung};
+pub use item::{plan_session, Item, Rung};
 pub use scores::{compare_side_score, listening_score, reveal_score};
 pub use timing::{SessionTiming, TIMING};

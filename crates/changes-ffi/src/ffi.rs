@@ -71,16 +71,19 @@ mod tests {
     fn start_session_round_trips_through_the_bridge() {
         let core = CoreFFI::new();
 
-        let event = bincode::serialize(&Event::StartSession { seed: 42 }).unwrap();
+        let event = bincode::serialize(&Event::StartSession {
+            seed: 42,
+            now_ms: 1_800_000_000_000,
+        })
+        .unwrap();
         let effects = core.update(&event).unwrap();
         assert!(
             !effects.is_empty(),
-            "StartSession must request render + play effects"
+            "StartSession must request render + storage effects"
         );
 
         let view: ViewModel = bincode::deserialize(&core.view().unwrap()).unwrap();
-        assert_eq!(view.phase, changes_core::Phase::Listening);
-        assert!(view.is_playing);
-        assert!(!view.key_name.is_empty());
+        assert_eq!(view.phase, changes_core::Phase::Pre);
+        assert!(view.is_loading, "audio waits for the SRS queue");
     }
 }

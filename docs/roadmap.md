@@ -76,6 +76,15 @@ Sonofield for a jazz user on its own. Build order and decisions:
       loop with fixed confusion twins, aural reveal = resolution-path
       playback, pause/resume replays the phase. Replaced the M1 spike app.
 - [ ] SRS scheduler (FSRS-style) + GRDB persistence (sync-ready schema)
+  - [x] Core half (2026-07-08, spec `docs/specs/srs-persistence.md`):
+        `fsrs` crate (BSD-3, burn-free ≥6.3) behind a first-party
+        `Scheduler` trait; skills = (mode, degree); queue = due → unseen →
+        upcoming, single-mode sessions; grades feed the scheduler and emit
+        typed `Storage` effects (load-before-audio, fire-and-forget saves,
+        failures surfaced); deterministic ulid review logs. Shell fulfils
+        storage with an in-memory store for now.
+  - [ ] Shell half: GRDB store executing the storage effects, migration v1
+        per the spec schema, populated-at-previous-version upgrade test.
 - [ ] Pocket Session UI: pre-session, in-session states, on-screen touch
       pacing (tap to start, tap to reveal, tap to grade — the grade tap
       advances; no timers, no auto-continue), aural + on-screen reveal

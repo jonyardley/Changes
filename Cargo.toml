@@ -21,6 +21,9 @@ serde_json = "1"
 thiserror = "2"
 ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
+# SRS scheduler (BSD-3, burn-free since 6.3 — docs/specs/srs-persistence.md
+# decision 2). Wrapped behind core's Scheduler trait; never on the bridge.
+fsrs = "6.6"
 bincode = "1"
 
 changes-core = { path = "crates/changes-core" }

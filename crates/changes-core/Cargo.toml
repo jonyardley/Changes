@@ -15,6 +15,8 @@ facet_typegen = ["dep:facet", "crux_core/facet_typegen"]
 crux_core = { workspace = true }
 serde = { workspace = true }
 facet = { workspace = true, optional = true }
+fsrs = { workspace = true }
+ulid = { workspace = true }
 
 [dev-dependencies]
 # The FFI bridge is positional bincode (non-self-describing); every

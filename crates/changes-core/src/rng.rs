@@ -2,6 +2,7 @@
 //! generation is a pure function of its seed — no `rand` version drift in
 //! replay tests, no wall-clock anywhere in core. Seeds arrive via events.
 
+#[derive(Debug, Default)]
 pub struct SplitMix64(u64);
 
 impl SplitMix64 {
