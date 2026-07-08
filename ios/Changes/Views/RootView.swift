@@ -168,33 +168,14 @@ struct RootView: View {
   }
 
   /// The picker appears only after the recall commitment (spec decision 1).
-  /// Functional layout for now — variants to choose from come next.
+  /// Grid layout, chosen 2026-07-08 over strip/arc variants (arc's labels
+  /// overlapped at the 12-option rung 2 case; grid stayed legible).
   private func pickContent(_ vm: ViewModel) -> some View {
     VStack(spacing: 18) {
       Text("What did you name?")
         .changesOverline()
-      let columns = [GridItem(.adaptive(minimum: 64), spacing: 10)]
-      LazyVGrid(columns: columns, spacing: 10) {
-        ForEach(vm.options, id: \.semitones) { option in
-          Button {
-            store.send(.submitAnswer(degree: Degree(value: option.semitones)))
-          } label: {
-            Text(option.label)
-              .font(ChangesFont.musicHeadline(26))
-              .foregroundStyle(ChangesColor.textPrimary)
-              .frame(maxWidth: .infinity, minHeight: 60)
-              .background(
-                RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
-                  .fill(ChangesColor.surface)
-                  .overlay(
-                    RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
-                      .strokeBorder(ChangesColor.hairline)
-                  )
-              )
-          }
-          .accessibilityLabel("Degree \(option.label)")
-          .accessibilityHint("Submits this as your answer")
-        }
+      PickerGrid(options: vm.options) { option in
+        store.send(.submitAnswer(degree: Degree(value: option.semitones)))
       }
     }
   }

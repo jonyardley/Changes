@@ -80,9 +80,20 @@ detail line "often confused with ♯4 — 5 of your last 6 misses" becomes
 queryable from `review_logs(skill, answered)`); placement (M5) can grade
 itself. No new storage beyond decision 6.
 
+## Resolved
+
+- **Picker layout** (2026-07-08): grid, chosen over strip and arc
+  candidates rendered as snapshots at the rung 2 (12-option) worst case.
+  Arc's labels overlapped illegibly at 12 options; grid stayed legible and
+  kept generous touch targets at every rung size. Strip matched the
+  duration-pills vocabulary but wrapped unevenly (a lone final pill) and
+  buried the tonic marker among 11 similar pills. Implementation:
+  `PickerGrid` in `ios/Changes/Views/Components/PickerGrid.swift`, wired
+  into `RootView.pickContent`. The tonic cell carries the screen's one
+  glow, tying the picker back to the resolution-path pedagogy shown at
+  reveal.
+
 ## Open questions (non-blocking)
 
-- Picker layout: chromatic strip vs two-row diatonic/chromatic vs arc —
-  decided from snapshot variants in the follow-up PR.
 - Whether the reveal's continue tap doubles as "replay resolution" on a
   long-press — dogfooding call.
