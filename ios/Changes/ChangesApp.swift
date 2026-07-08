@@ -27,7 +27,7 @@ struct ChangesApp: App {
       switch store.viewModel?.phase {
       case .pre, .recap:
         let nowMs = Int64(Date.now.timeIntervalSince1970 * 1000)
-        store.send(.startSession(seed: 2_026_07_08, nowMs: nowMs))
+        store.send(.startSession(seed: 2_026_07_08, nowMs: nowMs, maxItems: 12))
       case .gap:
         store.send(.tapReveal)
       case .reveal:
@@ -35,7 +35,7 @@ struct ChangesApp: App {
         store.send(missIt ? .gradeMissedIt : .gradeGotIt)
       case .compare:
         store.send(.exitCompare)
-      case .listening, .none:
+      case .context, .question, .none:
         break
       }
       try? await Task.sleep(nanoseconds: 2_500_000_000)

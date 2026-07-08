@@ -92,7 +92,8 @@ ios-test: _ios-sync
     print(next((d['udid'] for ds in devices.values() for d in ds
                 if d['name'] == 'changes-test-sim'), ''))
     ")
-    [ -n "$UDID" ] || UDID=$(xcrun simctl create changes-test-sim "iPhone 16")
+    # Runtime pinned to CI's (Xcode 26.5) so snapshot renders agree.
+    [ -n "$UDID" ] || UDID=$(xcrun simctl create changes-test-sim "iPhone 16" "iOS26.5")
     xcodebuild test -project Changes.xcodeproj -scheme Changes -sdk iphonesimulator \
         -destination "id=$UDID" -derivedDataPath build/dd \
         -clonedSourcePackagesDirPath build/spm -quiet \

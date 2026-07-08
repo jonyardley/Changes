@@ -74,6 +74,7 @@ mod tests {
         let event = bincode::serialize(&Event::StartSession {
             seed: 42,
             now_ms: 1_800_000_000_000,
+            max_items: 12,
         })
         .unwrap();
         let effects = core.update(&event).unwrap();

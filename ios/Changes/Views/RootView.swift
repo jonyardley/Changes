@@ -1,11 +1,20 @@
 import SharedTypes
 import SwiftUI
 
-/// Functional Pocket Session surface for the M2 engine: every state
-/// reachable and tokened, pixel-close polish deferred to M3 (design 1a/2b
-/// canvases). Manual pacing throughout — nothing advances without a tap.
+/// The Pocket Session, pixel-close to design 1a/2b/4b: every state from
+/// pre-session to recap, manually paced — nothing advances without a tap.
 struct RootView: View {
   @Environment(Store.self) private var store
+  @State private var minutes = 18
+
+  /// Duration pill → session length (≈90s per manually-paced item).
+  private var maxItems: UInt32 {
+    switch minutes {
+    case 10: 7
+    case 25: 17
+    default: 12
+    }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -20,46 +29,70 @@ struct RootView: View {
   }
 
   private var vm: ViewModel? { store.viewModel }
+  private var inSession: Bool {
+    guard let vm else { return false }
+    return vm.phase != .pre && vm.phase != .recap
+  }
 
-  // ── Header ────────────────────────────────────────────────────────────
+  // ── Header: wordmark / key badge · counter · pause ────────────────────
 
   private var header: some View {
-    HStack {
-      if let vm, vm.phase != .pre, !vm.keyName.isEmpty {
-        Text("in \(vm.keyName)")
-          .font(ChangesFont.musicKeyBadge)
-          .foregroundStyle(ChangesColor.textPrimary)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 6)
-          .background(Capsule().fill(ChangesColor.surface))
-          .accessibilityLabel("Key of \(vm.keyName)")
+    HStack(spacing: 12) {
+      if let vm, inSession, !vm.keyName.isEmpty {
+        HStack(spacing: 6) {
+          Circle().fill(ChangesColor.Quality.maj7).frame(width: 6, height: 6)
+          Text("in \(vm.keyName)")
+            .font(ChangesFont.musicKeyBadge)
+            .foregroundStyle(ChangesColor.textPrimary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(ChangesColor.surface))
+        .accessibilityLabel("Key of \(vm.keyName)")
       } else {
         Text("Changes")
-          .changesOverline()
+          .font(ChangesFont.uiOverline)
+          .textCase(.uppercase)
+          .tracking(13 * 0.22)
+          .foregroundStyle(ChangesColor.textSecondary)
           .accessibilityAddTraits(.isHeader)
       }
       Spacer()
-      if let vm, vm.phase != .pre, vm.phase != .recap {
+      if let vm, inSession {
         Text("\(vm.itemNumber) / \(vm.totalItems)")
           .font(ChangesFont.uiCounter)
           .foregroundStyle(ChangesColor.textTertiary)
+        if vm.pause == .none {
+          Button {
+            store.send(.tapPause)
+          } label: {
+            Image(systemName: "pause.fill")
+              .font(.system(size: 13))
+              .foregroundStyle(ChangesColor.textSecondary)
+              .frame(width: 34, height: 34)
+              .background(Circle().fill(ChangesColor.surface))
+          }
+          .accessibilityLabel("Pause session")
+        }
       }
     }
     .padding(.top, 8)
   }
 
-  // ── Centre content ────────────────────────────────────────────────────
+  // ── Centre content per state ──────────────────────────────────────────
 
   @ViewBuilder
   private var centre: some View {
     VStack(spacing: 24) {
       if let vm {
-        if vm.paused {
-          pausedCard
-        } else {
+        switch vm.pause {
+        case .user: pausedCard(vm)
+        case .interrupted: interruptedBanner
+        case .none:
           switch vm.phase {
           case .pre: preContent
-          case .listening: listeningContent
+          case .context: contextContent(vm)
+          case .question: questionContent
           case .gap: gapContent
           case .reveal: revealContent(vm)
           case .compare: compareContent(vm)
@@ -82,29 +115,49 @@ struct RootView: View {
   }
 
   private var preContent: some View {
-    VStack(spacing: 16) {
-      Text("Today")
-        .changesOverline()
-      Text("scale degrees, one key")
-        .font(ChangesFont.musicAccentLine)
-        .foregroundStyle(ChangesColor.accent)
+    VStack(spacing: 22) {
+      VStack(spacing: 8) {
+        Text("Today")
+          .changesOverline()
+        Text("scale degrees, one key")
+          .font(ChangesFont.musicAccentLine)
+          .foregroundStyle(ChangesColor.accent)
+      }
+      PlayButton(
+        label: vm?.isLoading == true ? "loading…" : "begin",
+        enabled: vm?.isLoading != true
+      ) {
+        startSession()
+      }
+      DurationPills(minutes: $minutes)
     }
   }
 
-  private var listeningContent: some View {
-    VStack(spacing: 16) {
+  private func contextContent(_ vm: ViewModel) -> some View {
+    VStack(spacing: 18) {
       Text("Listen")
         .changesOverline()
-      Text("establishing the key…")
+      LevelBars(animating: vm.isPlaying)
+      Text("establishing \(vm.keyName)")
         .font(ChangesFont.musicAccentLine)
         .foregroundStyle(ChangesColor.textSecondary)
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("Listening. The cadence and question note are playing.")
+    .accessibilityLabel("Listening. The cadence is establishing \(vm.keyName).")
+  }
+
+  private var questionContent: some View {
+    VStack(spacing: 18) {
+      Text("Degree of this note")
+        .changesOverline()
+      QuestionPulse()
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("The question note is playing. Which degree is it?")
   }
 
   private var gapContent: some View {
-    VStack(spacing: 16) {
+    VStack(spacing: 12) {
       Text("Name it")
         .changesOverline()
       Text("in your head — take your time")
@@ -119,8 +172,8 @@ struct RootView: View {
         .changesOverline()
       if let answer = vm.answer {
         Text(answer.label)
-          .font(ChangesFont.musicChordSymbol())
-          .tracking(-90 * 0.02)
+          .font(ChangesFont.musicChordSymbol(84))
+          .tracking(-84 * 0.02)
           .foregroundStyle(ChangesColor.textPrimary)
           .accessibilityLabel("The degree was \(answer.label)")
         Text(answer.resolution)
@@ -137,22 +190,25 @@ struct RootView: View {
         .changesOverline()
       if let compare = vm.compare {
         HStack(spacing: 16) {
-          compareCard(label: compare.missed, active: !compare.playingTwin, caption: "you missed")
-          compareCard(label: compare.twin, active: compare.playingTwin, caption: "its twin")
+          compareCard(label: compare.missed, active: !compare.playingTwin)
+          compareCard(label: compare.twin, active: compare.playingTwin)
         }
+        Text("hear it pull home — that's the color")
+          .font(ChangesFont.musicAccentLine)
+          .foregroundStyle(ChangesColor.accent)
       }
     }
   }
 
-  private func compareCard(label: String, active: Bool, caption: String) -> some View {
-    VStack(spacing: 8) {
+  private func compareCard(label: String, active: Bool) -> some View {
+    VStack(spacing: 10) {
       Text(label)
         .font(ChangesFont.musicHeadline(44))
         .foregroundStyle(ChangesColor.textPrimary)
-      Text(active ? "playing" : caption)
+      Text(active ? "playing" : "next")
         .changesOverline()
     }
-    .frame(maxWidth: .infinity, minHeight: 140)
+    .frame(maxWidth: .infinity, minHeight: 150)
     .background(
       RoundedRectangle(cornerRadius: ChangesSpacing.radiusCardLarge)
         .fill(ChangesColor.surface)
@@ -161,84 +217,124 @@ struct RootView: View {
             .strokeBorder(active ? ChangesColor.accent : ChangesColor.hairline)
         )
     )
+    .shadow(
+      color: active ? ChangesGlow.accentColor : .clear, radius: ChangesGlow.accentRadius / 2
+    )
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(label), \(active ? "playing now" : caption)")
+    .accessibilityLabel("\(label), \(active ? "playing now" : "plays next")")
   }
 
   private func recapContent(_ vm: ViewModel) -> some View {
-    VStack(spacing: 16) {
-      Text("Session complete")
-        .changesOverline()
-      Text("nice ears tonight.")
-        .font(ChangesFont.musicHeadline())
-        .foregroundStyle(ChangesColor.textPrimary)
+    VStack(spacing: 20) {
+      VStack(spacing: 8) {
+        Text("Session complete")
+          .changesOverline()
+        Text("nice ears tonight.")
+          .font(ChangesFont.musicHeadline())
+          .foregroundStyle(ChangesColor.textPrimary)
+      }
       if let recap = vm.recap {
-        HStack(spacing: 28) {
-          recapStat(value: recap.got, label: "heard")
-          recapStat(value: recap.missed, label: "to revisit")
+        VStack(spacing: 0) {
+          LedgerRow(label: "reviewed", value: "\(recap.got + recap.missed)")
+          LedgerRow(label: "heard right", value: "\(recap.got)", glow: recap.missed == 0)
+          LedgerRow(label: "to revisit", value: "\(recap.missed)")
         }
+        pianoCard(recap)
       }
     }
   }
 
-  private func recapStat(value: UInt32, label: String) -> some View {
-    VStack(spacing: 4) {
-      Text("\(value)")
-        .font(ChangesFont.uiStat)
-        .foregroundStyle(ChangesColor.textPrimary)
-      Text(label)
+  private func pianoCard(_ recap: RecapView) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Tonight at the piano")
         .changesOverline()
+      Text(
+        recap.missed > 0
+          ? "play the \(recap.missed) you missed against the key — hear each pull home"
+          : "play today's degrees against the key, eyes closed"
+      )
+      .font(ChangesFont.musicAccentLine)
+      .foregroundStyle(ChangesColor.textPrimary)
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(value) \(label)")
-  }
-
-  private var pausedCard: some View {
-    VStack(spacing: 12) {
-      Text("Paused")
-        .changesOverline()
-      Text("take your time — the key will still be here")
-        .font(ChangesFont.musicAccentLine)
-        .foregroundStyle(ChangesColor.textSecondary)
-        .multilineTextAlignment(.center)
-      Text("resuming replays this item")
-        .font(ChangesFont.uiCounter)
-        .foregroundStyle(ChangesColor.textTertiary)
-    }
-    .padding(24)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(18)
     .background(
       RoundedRectangle(cornerRadius: ChangesSpacing.radiusCardLarge)
         .fill(ChangesColor.surface)
         .overlay(
           RoundedRectangle(cornerRadius: ChangesSpacing.radiusCardLarge)
-            .strokeBorder(ChangesColor.Tension.flat13)
+            .strokeBorder(ChangesColor.accentBorder)
         )
     )
   }
 
-  // ── Controls (the deliberate taps) ────────────────────────────────────
+  private func pausedCard(_ vm: ViewModel) -> some View {
+    VStack(spacing: 12) {
+      Text("Paused")
+        .changesOverline()
+      Text("take your time — \(vm.keyName) will still be here")
+        .font(ChangesFont.musicAccentLine)
+        .foregroundStyle(ChangesColor.textSecondary)
+        .multilineTextAlignment(.center)
+      Text("progress saved · session resumes mid-item")
+        .font(ChangesFont.uiCounter)
+        .textCase(.uppercase)
+        .tracking(1)
+        .foregroundStyle(ChangesColor.textTertiary)
+    }
+    .padding(24)
+    .frame(maxWidth: .infinity)
+    .background(
+      RoundedRectangle(cornerRadius: ChangesSpacing.radiusCardLarge)
+        .fill(ChangesColor.surface)
+        .overlay(
+          RoundedRectangle(cornerRadius: ChangesSpacing.radiusCardLarge)
+            .strokeBorder(ChangesColor.hairline)
+        )
+    )
+  }
+
+  private var interruptedBanner: some View {
+    VStack(spacing: 10) {
+      Text("Other audio detected — holding")
+        .font(ChangesFont.uiBodyMedium)
+        .foregroundStyle(ChangesColor.textPrimary)
+      Text("tap resume when it's quiet · replays the item")
+        .font(ChangesFont.uiCounter)
+        .foregroundStyle(ChangesColor.textTertiary)
+    }
+    .padding(20)
+    .frame(maxWidth: .infinity)
+    .background(
+      RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+        .fill(ChangesColor.surface)
+        .overlay(
+          RoundedRectangle(cornerRadius: ChangesSpacing.radiusCard)
+            .strokeBorder(ChangesColor.Tension.flat13)
+        )
+    )
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Session held: other audio detected. Tap resume when it's quiet.")
+  }
+
+  // ── Controls (the deliberate taps; zones fade 25% ↔ 100%) ─────────────
 
   @ViewBuilder
   private var controls: some View {
     if let vm {
       Group {
-        if vm.paused {
+        if vm.pause != .none {
           tapZone("resume", accent: true) { store.send(.tapResume) }
         } else {
           switch vm.phase {
           case .pre:
-            tapZone(vm.isLoading ? "loading…" : "start today's session", accent: true) {
-              startSession()
-            }
-            .disabled(vm.isLoading)
-          case .listening:
-            tapZone(vm.isPlaying ? "listening…" : "", accent: false) {}
-              .disabled(true)
-              .opacity(0.25)
+            EmptyView()
+          case .context, .question:
+            answerZones(vm, enabled: false).opacity(0.25)
           case .gap:
             tapZone("tap to reveal", accent: true) { store.send(.tapReveal) }
           case .reveal:
-            answerZones
+            answerZones(vm, enabled: true)
           case .compare:
             tapZone("I hear it — continue", accent: true) { store.send(.exitCompare) }
           case .recap:
@@ -246,18 +342,19 @@ struct RootView: View {
           }
         }
       }
+      .animation(.easeInOut(duration: 0.3), value: vm.phase)
       .padding(.bottom, 16)
     }
   }
 
-  private var answerZones: some View {
+  private func answerZones(_ vm: ViewModel, enabled: Bool) -> some View {
     HStack(spacing: 12) {
-      answerZone("Got it", event: .gradeGotIt)
-      answerZone("Missed it", event: .gradeMissedIt)
+      answerZone("Got it", event: .gradeGotIt, enabled: enabled)
+      answerZone("Missed it", event: .gradeMissedIt, enabled: enabled)
     }
   }
 
-  private func answerZone(_ label: String, event: Event) -> some View {
+  private func answerZone(_ label: String, event: Event, enabled: Bool) -> some View {
     Button {
       store.send(event)
     } label: {
@@ -274,6 +371,7 @@ struct RootView: View {
             )
         )
     }
+    .disabled(!enabled)
     .accessibilityHint("Grades this item and moves on")
   }
 
@@ -298,6 +396,6 @@ struct RootView: View {
   private func startSession() {
     // Shell-provided entropy + clock: the core is deterministic given both.
     let nowMs = Int64(Date.now.timeIntervalSince1970 * 1000)
-    store.send(.startSession(seed: UInt64(bitPattern: nowMs), nowMs: nowMs))
+    store.send(.startSession(seed: UInt64(bitPattern: nowMs), nowMs: nowMs, maxItems: maxItems))
   }
 }

@@ -89,10 +89,14 @@ Sonofield for a jazz user on its own. Build order and decisions:
         in-memory fallback surfaced in UI), migration v1 per the spec
         schema, `ChangesTests` target (store round-trip + skill-key codec +
         populated-at-v1 upgrade test) run by `just ios-test` and CI.
-- [ ] Pocket Session UI: pre-session, in-session states, on-screen touch
-      pacing (tap to start, tap to reveal, tap to grade — the grade tap
-      advances; no timers, no auto-continue), aural + on-screen reveal
-      (resolution / decomposition playback — no TTS)
+- [x] Pocket Session UI (2026-07-08): all canvas states — pre-session
+      (190px play, duration pills wired to session length), context (level
+      bars), question ("?" pulse), gap, reveal (answer zones 25%↔100%),
+      compare 2b two-cards with playing-side glow, user-paused card vs
+      amber interrupted banner (new core `PauseState`), recap ledger +
+      "tonight at the piano" card. Context/question split into separate
+      phases + scores. 11 snapshot tests (pinned iPhone 16 / iOS 26.5,
+      optimised PNGs) + VoiceOver labels + Dynamic Type variant.
 - [ ] Session recap + Ladder/progress hub (Levels 0–2 only)
 - [ ] Onboarding + placement test (rungs 0–2)
 

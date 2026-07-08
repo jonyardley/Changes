@@ -1,6 +1,6 @@
 //! Score builders: turn items into the abstract scores the shell realizes.
-//! Listening = cadence + question note in one score (sample-accurate
-//! throughout, no cross-effect seam mid-item).
+//! Context (cadence) and Question (the note) are separate scores so the UI
+//! can show distinct states; each score is one sample-accurate schedule.
 
 use crate::audio::{InstrumentRole, Score, ScoreNote};
 use crate::theory::{resolution_path, two_five_one, Degree};
@@ -41,8 +41,10 @@ fn melody_midi(item: Item, degree: Degree) -> u8 {
         .midi_near(MELODY_ANCHOR_MIDI)
 }
 
-/// Cadence establishing the key, a breath, then the question note.
-pub fn listening_score(item: Item) -> Score {
+/// Context: the cadence establishing the key, plus the pre-question breath
+/// (as trailing silence — the phase's audio owns its own gap, so the
+/// Question phase starts exactly when its note sounds).
+pub fn context_score(item: Item) -> Score {
     let mut notes = Vec::new();
     let [ii, v, i] = two_five_one(item.key);
     push_chord(&mut notes, &ii, 0.0, TIMING.cadence_chord_beats, 76);
@@ -55,12 +57,21 @@ pub fn listening_score(item: Item) -> Score {
     );
     let resolve_at = TIMING.cadence_chord_beats * 2.0;
     push_chord(&mut notes, &i, resolve_at, TIMING.cadence_resolve_beats, 80);
+    Score {
+        tempo_bpm: TIMING.tempo_bpm,
+        notes,
+    }
+}
 
-    let question_at = resolve_at + TIMING.cadence_resolve_beats + TIMING.pre_question_rest_beats;
+/// Question: the item's note alone, played once.
+pub fn question_score(item: Item) -> Score {
+    let mut notes = Vec::new();
     push_note(
         &mut notes,
         melody_midi(item, item.degree),
-        question_at,
+        // The breath between cadence and question lives here as onset
+        // offset, keeping it one sample-accurate schedule.
+        TIMING.pre_question_rest_beats,
         TIMING.question_beats,
         88,
     );
@@ -128,14 +139,20 @@ mod tests {
     }
 
     #[test]
-    fn listening_score_is_cadence_then_question_note() {
-        let score = listening_score(item());
-        // 3 chords × 4 notes + 1 question note.
-        assert_eq!(score.notes.len(), 13);
+    fn context_score_is_the_cadence_alone() {
+        let score = context_score(item());
+        // 3 rolled 4-note chords, no melody note.
+        assert_eq!(score.notes.len(), 12);
+    }
+
+    #[test]
+    fn question_score_is_the_note_after_a_breath() {
+        let score = question_score(item());
+        assert_eq!(score.notes.len(), 1);
         let question = score.notes.last().expect("question note");
         assert_eq!(question.midi % 12, 7); // G
-        let cadence_end = TIMING.cadence_chord_beats * 2.0 + TIMING.cadence_resolve_beats;
-        assert!(question.onset_beats >= cadence_end + TIMING.pre_question_rest_beats - 1e-6);
+        assert_eq!(question.onset_beats, TIMING.pre_question_rest_beats);
+        assert_eq!(question.duration_beats, TIMING.question_beats);
     }
 
     #[test]

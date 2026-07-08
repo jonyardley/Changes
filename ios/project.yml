@@ -20,6 +20,9 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     exactVersion: "7.11.0"
+  SnapshotTesting:
+    url: https://github.com/pointfreeco/swift-snapshot-testing
+    exactVersion: "1.19.2"
 
 targets:
   Changes:
@@ -49,9 +52,13 @@ targets:
     platform: iOS
     sources:
       - path: ChangesTests
+        excludes:
+          - "__Snapshots__/**" # read from disk via #file, not bundled
     dependencies:
       - target: Changes
       - package: SharedTypes
         product: SharedTypes
       - package: GRDB
         product: GRDB
+      - package: SnapshotTesting
+        product: SnapshotTesting
