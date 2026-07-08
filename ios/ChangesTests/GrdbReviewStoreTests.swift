@@ -19,7 +19,7 @@ final class GrdbReviewStoreTests: XCTestCase {
   }
 
   private func sampleLog(_ state: ReviewState, id: String) -> ReviewLog {
-    ReviewLog(id: id, skill: state.skill, grade: .got, reviewedAtMs: now)
+    ReviewLog(id: id, skill: state.skill, grade: .got, answered: state.skill.degree, reviewedAtMs: now)
   }
 
   func testSaveThenLoadRoundTripsTheState() throws {
@@ -139,10 +139,35 @@ final class MigrationTests: XCTestCase {
     let loaded = try store.load()
     XCTAssertEqual(loaded.count, 1)
     XCTAssertEqual(loaded.first?.stability, 2.5)
-    let logCount = try queue.read { db in
-      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_logs") ?? 0
+    // v2: the answered column exists and v1 history reads as NULL.
+    let (logCount, answered) = try queue.read { db in
+      (
+        try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_logs") ?? 0,
+        try Int.fetchOne(db, sql: "SELECT answered FROM review_logs LIMIT 1")
+      )
     }
     XCTAssertEqual(logCount, 1)
+    XCTAssertNil(answered, "pre-input history has no answer recorded")
+  }
+
+  func testAnsweredPersistsThroughSave() throws {
+    let queue = try DatabaseQueue()
+    try GrdbReviewStore.migrator.migrate(queue)
+    let store = try GrdbReviewStore(queue)
+    let skill = SkillId(mode: .major, degree: Degree(value: 4))
+    let state = ReviewState(
+      skill: skill, stability: 1, difficulty: 5,
+      lastReviewedAtMs: 100, dueAtMs: 200)
+    let log = ReviewLog(
+      id: "01B", skill: skill, grade: .missed,
+      answered: Degree(value: 6), reviewedAtMs: 100)
+
+    try store.save(state: state, log: log)
+
+    let stored = try queue.read { db in
+      try Int.fetchOne(db, sql: "SELECT answered FROM review_logs WHERE id = '01B'")
+    }
+    XCTAssertEqual(stored, 6)
   }
 
   func testFreshDatabaseMigratesAndServesTheStore() throws {

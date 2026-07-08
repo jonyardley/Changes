@@ -48,11 +48,16 @@ pub enum Event {
     TapPause,
     ReviewsLoaded(StorageOutput),
     ReviewSaved(StorageOutput),
-    /// Gap → reveal (the open-ended thinking gap ends on this tap).
-    TapReveal,
-    /// Self-grade taps; each doubles as "next" and feeds the SRS.
-    GradeGotIt,
-    GradeMissedIt,
+    /// "I've named it" — ends the open-ended gap, shows the picker
+    /// (docs/specs/answer-input.md decision 1: recall commits first).
+    TapReady,
+    /// The degree the user picked; grading derives from it.
+    SubmitAnswer {
+        degree: crate::theory::Degree,
+    },
+    /// Continue from the reveal — to the next item, or through the
+    /// mandatory compare loop when the answer was wrong.
+    TapNext,
     /// Leave the compare loop ("I hear it — continue").
     ExitCompare,
     /// Resume after pause — replays the current phase's audio (no item is
@@ -77,6 +82,8 @@ pub enum Phase {
     Question,
     /// Open-ended thinking gap; silence on purpose.
     Gap,
+    /// Picker showing: the user taps the degree they already named.
+    Pick,
     Reveal,
     /// Banacos loop: the missed color alternating with its confusable twin.
     Compare,
@@ -101,6 +108,7 @@ pub struct Model {
     items: Vec<Item>,
     index: usize,
     results: Vec<bool>,
+    answered: Option<crate::theory::Degree>,
     compare_on_twin: bool,
     is_playing: bool,
     pause: PauseState,
@@ -127,6 +135,27 @@ pub struct AnswerView {
     pub label: String,
     /// The resolution walk ("♭3 · 2 · 1") shown alongside the aural reveal.
     pub resolution: String,
+    /// Present once the user has answered (always, from this feature on).
+    pub verdict: Option<Verdict>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
+#[cfg_attr(feature = "facet_typegen", repr(C))]
+pub struct Verdict {
+    /// What the user picked ("♯4").
+    pub your_label: String,
+    pub correct: bool,
+}
+
+/// One picker option, precomputed in core (shells make no musical
+/// decisions). Ordered low → high within the rung's pool.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "facet_typegen", derive(facet::Facet))]
+#[cfg_attr(feature = "facet_typegen", repr(C))]
+pub struct DegreeOption {
+    pub label: String,
+    pub semitones: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -161,6 +190,8 @@ pub struct ViewModel {
     pub total_items: u32,
     /// Key badge ("in E♭"), fixed per session.
     pub key_name: String,
+    /// The picker's options (Pick phase only — sound before sign).
+    pub options: Vec<DegreeOption>,
     /// Present at reveal and during compare — sound before sign.
     pub answer: Option<AnswerView>,
     pub compare: Option<CompareView>,
@@ -235,25 +266,38 @@ impl App for Changes {
                 }
                 Command::done()
             }
-            Event::TapReveal if model.phase == Phase::Gap && model.pause == PauseState::None => {
+            Event::TapReady if model.phase == Phase::Gap && model.pause == PauseState::None => {
+                model.phase = Phase::Pick;
+                render()
+            }
+            Event::SubmitAnswer { degree }
+                if model.phase == Phase::Pick && model.pause == PauseState::None =>
+            {
+                let Some(item) = model.current() else {
+                    return render();
+                };
+                model.answered = Some(degree);
+                let correct = degree == item.degree;
+                model.results.push(correct);
+                let persist =
+                    self.record_grade(model, if correct { Grade::Got } else { Grade::Missed });
                 model.phase = Phase::Reveal;
-                play_current(model, reveal_score)
+                play_current(model, reveal_score).and(persist)
             }
-            Event::GradeGotIt
-                if model.phase == Phase::Reveal && model.pause == PauseState::None =>
-            {
-                model.results.push(true);
-                let persist = self.record_grade(model, Grade::Got);
-                advance(model).and(persist)
-            }
-            Event::GradeMissedIt
-                if model.phase == Phase::Reveal && model.pause == PauseState::None =>
-            {
-                model.results.push(false);
-                let persist = self.record_grade(model, Grade::Missed);
-                model.phase = Phase::Compare;
-                model.compare_on_twin = false;
-                play_compare_side(model).and(persist)
+            Event::TapNext if model.phase == Phase::Reveal && model.pause == PauseState::None => {
+                let wrong = model
+                    .answered
+                    .zip(model.current().map(|i| i.degree))
+                    .is_some_and(|(a, correct)| a != correct);
+                if wrong {
+                    // Errors are the curriculum: the compare loop is
+                    // mandatory on a miss.
+                    model.phase = Phase::Compare;
+                    model.compare_on_twin = false;
+                    play_compare_side(model)
+                } else {
+                    advance(model)
+                }
             }
             Event::ExitCompare if model.phase == Phase::Compare => advance(model),
             Event::TapPause
@@ -272,7 +316,7 @@ impl App for Changes {
                     Phase::Question => play_current(model, question_score),
                     Phase::Reveal => play_current(model, reveal_score),
                     Phase::Compare => play_compare_side(model),
-                    // Gap/Pre/Recap hold no audio — just unfreeze.
+                    // Gap/Pick/Pre/Recap hold no audio — just unfreeze.
                     _ => render(),
                 }
             }
@@ -317,6 +361,23 @@ impl App for Changes {
         let answer = model
             .current()
             .filter(|_| matches!(model.phase, Phase::Reveal | Phase::Compare));
+        let options = if model.phase == Phase::Pick {
+            model
+                .current()
+                .map(|item| {
+                    RUNG.skill_pool()
+                        .iter()
+                        .filter(|skill| skill.mode == item.key.mode)
+                        .map(|skill| DegreeOption {
+                            label: item.key.label_of(skill.degree).to_string(),
+                            semitones: skill.degree.semitones(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         ViewModel {
             phase: model.phase,
             is_loading: model.awaiting_load,
@@ -326,16 +387,29 @@ impl App for Changes {
                 .current()
                 .map(|i| i.key.tonic_name().to_string())
                 .unwrap_or_default(),
+            options,
             answer: answer.map(|item| AnswerView {
                 label: item.key.label_of(item.degree).to_string(),
                 resolution: resolution_text(item),
+                verdict: model.answered.map(|picked| Verdict {
+                    your_label: item.key.label_of(picked).to_string(),
+                    correct: picked == item.degree,
+                }),
             }),
             compare: (model.phase == Phase::Compare)
                 .then(|| model.current())
                 .flatten()
                 .map(|item| CompareView {
                     missed: item.key.label_of(item.degree).to_string(),
-                    twin: item.key.label_of(item.confusion_twin()).to_string(),
+                    twin: item
+                        .key
+                        .label_of(
+                            model
+                                .answered
+                                .filter(|&a| a != item.degree)
+                                .unwrap_or_else(|| item.confusion_twin()),
+                        )
+                        .to_string(),
                     playing_twin: model.compare_on_twin,
                 }),
             recap: (model.phase == Phase::Recap).then(|| {
@@ -378,6 +452,7 @@ impl Changes {
             .to_string(),
             skill,
             grade,
+            answered: model.answered,
             reviewed_at_ms: model.now_ms,
         };
         save_review(state, log)
@@ -413,8 +488,14 @@ fn play_current(
 fn play_compare_side(model: &mut Model) -> Command<Effect, Event> {
     match model.current() {
         Some(item) => {
+            // The B side is the degree the user actually confused it with;
+            // the static twin table is only a fallback (spec decision 3).
+            let twin = model
+                .answered
+                .filter(|&a| a != item.degree)
+                .unwrap_or_else(|| item.confusion_twin());
             let degree = if model.compare_on_twin {
-                item.confusion_twin()
+                twin
             } else {
                 item.degree
             };
@@ -427,6 +508,7 @@ fn play_compare_side(model: &mut Model) -> Command<Effect, Event> {
 
 fn advance(model: &mut Model) -> Command<Effect, Event> {
     model.index += 1;
+    model.answered = None;
     if model.index >= model.items.len() {
         model.phase = Phase::Recap;
         model.is_playing = false;
@@ -489,11 +571,23 @@ mod tests {
         (app, model)
     }
 
-    fn to_reveal(app: &Changes, model: &mut Model) {
-        // Context finishes → Question plays → finishes → Gap.
+    /// Walk to the picker: context finishes → question finishes → gap →
+    /// TapReady.
+    fn to_pick(app: &Changes, model: &mut Model) {
         let _ = app.update(Event::PlaybackFinished(PlayScoreOutput::Finished), model);
         let _ = app.update(Event::PlaybackFinished(PlayScoreOutput::Finished), model);
-        let _ = app.update(Event::TapReveal, model);
+        let _ = app.update(Event::TapReady, model);
+    }
+
+    /// Answer the current item (correctly or not) and return the command.
+    fn answer(app: &Changes, model: &mut Model, correctly: bool) -> Command<Effect, Event> {
+        let item = model.current().expect("current item");
+        let degree = if correctly {
+            item.degree
+        } else {
+            crate::theory::Degree::new((item.degree.semitones() + 1) % 12)
+        };
+        app.update(Event::SubmitAnswer { degree }, model)
     }
 
     #[test]
@@ -588,49 +682,129 @@ mod tests {
     }
 
     #[test]
-    fn a_grade_updates_srs_state_and_persists_state_plus_log() {
+    fn tap_ready_opens_the_picker_with_the_rung_pool() {
         let (app, mut model) = start_with(Vec::new());
-        to_reveal(&app, &mut model);
-        let item = model.current().expect("item");
-
-        let mut cmd = app.update(Event::GradeGotIt, &mut model);
-
-        let ops = storage_ops(&mut cmd);
-        let [StorageOperation::SaveReview { state, log }] = &ops[..] else {
-            panic!("expected one SaveReview, got {ops:?}");
-        };
-        assert_eq!(state.skill.degree, item.degree);
-        assert_eq!(state.last_reviewed_at_ms, NOW);
-        assert!(state.due_at_ms > NOW, "scheduled into the future");
-        assert_eq!(log.grade, Grade::Got);
-        assert_eq!(log.reviewed_at_ms, NOW);
-        assert!(!log.id.is_empty());
-        assert!(
-            model.review_states.contains_key(&state.skill.key()),
-            "model mirrors the write"
-        );
+        to_pick(&app, &mut model);
+        let view = app.view(&model);
+        assert_eq!(view.phase, Phase::Pick);
+        assert_eq!(view.options.len(), 7, "rung 1: the diatonic pool");
+        assert_eq!(view.options[0].label, "1", "low to high, tonic first");
+        assert_eq!(view.answer, None, "no answer shown before submitting");
     }
 
     #[test]
-    fn a_miss_persists_and_enters_compare() {
+    fn a_correct_answer_grades_got_persists_the_answer_and_reveals() {
         let (app, mut model) = start_with(Vec::new());
-        to_reveal(&app, &mut model);
+        to_pick(&app, &mut model);
+        let item = model.current().expect("item");
 
-        let mut cmd = app.update(Event::GradeMissedIt, &mut model);
+        let mut cmd = answer(&app, &mut model, true);
 
-        // effects() drains — collect once, then partition.
         let effects: Vec<Effect> = cmd.effects().collect();
-        let saves = effects
+        let save = effects
             .iter()
-            .filter(|e| matches!(e, Effect::Storage(_)))
-            .count();
-        let plays = effects
-            .iter()
-            .filter(|e| matches!(e, Effect::PlayScore(_)))
-            .count();
-        assert_eq!(saves, 1);
-        assert_eq!(plays, 1, "compare side plays");
+            .find_map(|e| match e {
+                Effect::Storage(req) => Some(req.operation.clone()),
+                _ => None,
+            })
+            .expect("a SaveReview");
+        let StorageOperation::SaveReview { state, log } = save else {
+            panic!("expected SaveReview");
+        };
+        assert_eq!(state.skill.degree, item.degree);
+        assert_eq!(log.grade, Grade::Got);
+        assert_eq!(log.answered, Some(item.degree));
+        assert!(
+            effects.iter().any(|e| matches!(e, Effect::PlayScore(_))),
+            "the resolution plays at reveal"
+        );
+        let view = app.view(&model);
+        assert_eq!(view.phase, Phase::Reveal);
+        let verdict = view.answer.expect("answer").verdict.expect("verdict");
+        assert!(verdict.correct);
+    }
+
+    #[test]
+    fn a_wrong_answer_grades_missed_and_logs_what_was_said() {
+        let (app, mut model) = start_with(Vec::new());
+        to_pick(&app, &mut model);
+        let item = model.current().expect("item");
+
+        let mut cmd = answer(&app, &mut model, false);
+
+        let save = cmd
+            .effects()
+            .find_map(|e| match e {
+                Effect::Storage(req) => Some(req.operation.clone()),
+                _ => None,
+            })
+            .expect("a SaveReview");
+        let StorageOperation::SaveReview { log, .. } = save else {
+            panic!("expected SaveReview");
+        };
+        assert_eq!(log.grade, Grade::Missed);
+        assert_ne!(log.answered, Some(item.degree));
+        assert!(log.answered.is_some());
+        let verdict = app
+            .view(&model)
+            .answer
+            .expect("answer")
+            .verdict
+            .expect("verdict");
+        assert!(!verdict.correct);
+        assert_ne!(verdict.your_label, "");
+    }
+
+    #[test]
+    fn continue_after_wrong_enters_compare_seeded_with_the_actual_answer() {
+        let (app, mut model) = start_with(Vec::new());
+        to_pick(&app, &mut model);
+        let item = model.current().expect("item");
+        let _ = answer(&app, &mut model, false);
+
+        let mut cmd = app.update(Event::TapNext, &mut model);
+
         assert_eq!(app.view(&model).phase, Phase::Compare);
+        let compare = app.view(&model).compare.expect("compare view");
+        let wrong = model.answered.expect("answered");
+        assert_eq!(
+            compare.twin,
+            item.key.label_of(wrong),
+            "B side = what you said"
+        );
+        assert_eq!(plays(&mut cmd).len(), 1);
+    }
+
+    #[test]
+    fn continue_after_correct_advances_and_clears_the_answer() {
+        let (app, mut model) = start_with(Vec::new());
+        to_pick(&app, &mut model);
+        let _ = answer(&app, &mut model, true);
+
+        let _ = app.update(Event::TapNext, &mut model);
+
+        assert_eq!(app.view(&model).phase, Phase::Context);
+        assert_eq!(app.view(&model).item_number, 2);
+        assert_eq!(model.answered, None);
+    }
+
+    #[test]
+    fn taps_out_of_phase_are_ignored_including_submit_in_the_gap() {
+        let (app, mut model) = start_with(Vec::new());
+        let _ = app.update(
+            Event::PlaybackFinished(PlayScoreOutput::Finished),
+            &mut model,
+        );
+        let _ = app.update(
+            Event::PlaybackFinished(PlayScoreOutput::Finished),
+            &mut model,
+        );
+        assert_eq!(app.view(&model).phase, Phase::Gap);
+
+        // Submitting without TapReady must not grade.
+        let _ = answer(&app, &mut model, true);
+        assert_eq!(app.view(&model).phase, Phase::Gap);
+        assert!(model.results.is_empty());
     }
 
     #[test]
@@ -639,11 +813,14 @@ mod tests {
             let (app, mut model) = start_with(Vec::new());
             let mut ids = Vec::new();
             for _ in 0..3 {
-                to_reveal(&app, &mut model);
-                let mut cmd = app.update(Event::GradeGotIt, &mut model);
-                if let [StorageOperation::SaveReview { log, .. }] = &storage_ops(&mut cmd)[..] {
-                    ids.push(log.id.clone());
+                to_pick(&app, &mut model);
+                let mut cmd = answer(&app, &mut model, true);
+                if let Some(StorageOperation::SaveReview { log, .. }) =
+                    storage_ops(&mut cmd).into_iter().next()
+                {
+                    ids.push(log.id);
                 }
+                let _ = app.update(Event::TapNext, &mut model);
             }
             ids
         };
@@ -674,8 +851,9 @@ mod tests {
     #[test]
     fn save_failure_surfaces_but_does_not_interrupt_the_session() {
         let (app, mut model) = start_with(Vec::new());
-        to_reveal(&app, &mut model);
-        let _ = app.update(Event::GradeGotIt, &mut model);
+        to_pick(&app, &mut model);
+        let _ = answer(&app, &mut model, true);
+        let _ = app.update(Event::TapNext, &mut model);
 
         let _ = app.update(
             Event::ReviewSaved(StorageOutput::Failed {
@@ -694,12 +872,12 @@ mod tests {
         let (app, mut model) = start_with(Vec::new());
         let total = model.items.len();
         for i in 0..total {
-            to_reveal(&app, &mut model);
-            if i % 4 == 3 {
-                let _ = app.update(Event::GradeMissedIt, &mut model);
+            to_pick(&app, &mut model);
+            let miss = i % 4 == 3;
+            let _ = answer(&app, &mut model, !miss);
+            let _ = app.update(Event::TapNext, &mut model);
+            if miss {
                 let _ = app.update(Event::ExitCompare, &mut model);
-            } else {
-                let _ = app.update(Event::GradeGotIt, &mut model);
             }
         }
         let view = app.view(&model);
@@ -713,8 +891,9 @@ mod tests {
         let (app, mut model) = start_with(Vec::new());
         let total = model.items.len();
         for _ in 0..total {
-            to_reveal(&app, &mut model);
-            let _ = app.update(Event::GradeGotIt, &mut model);
+            to_pick(&app, &mut model);
+            let _ = answer(&app, &mut model, true);
+            let _ = app.update(Event::TapNext, &mut model);
         }
         assert_eq!(app.view(&model).phase, Phase::Recap);
 
@@ -790,14 +969,16 @@ mod tests {
                 max_items: 12,
             },
             Event::TapPause,
+            Event::TapReady,
+            Event::SubmitAnswer {
+                degree: crate::theory::Degree::new(6),
+            },
+            Event::TapNext,
             Event::ReviewsLoaded(StorageOutput::Reviews(vec![state.clone()])),
             Event::ReviewsLoaded(StorageOutput::Failed {
                 message: "io".into(),
             }),
             Event::ReviewSaved(StorageOutput::Ack),
-            Event::TapReveal,
-            Event::GradeGotIt,
-            Event::GradeMissedIt,
             Event::ExitCompare,
             Event::TapResume,
             Event::PlaybackFinished(PlayScoreOutput::Finished),
@@ -828,6 +1009,7 @@ mod tests {
                 id: "01J0000000000000000000000".into(),
                 skill,
                 grade: Grade::Missed,
+                answered: Some(crate::theory::Degree::new(4)),
                 reviewed_at_ms: NOW,
             },
         });
@@ -842,9 +1024,17 @@ mod tests {
             item_number: 3,
             total_items: 12,
             key_name: "E♭".into(),
+            options: vec![DegreeOption {
+                label: "♭3".into(),
+                semitones: 3,
+            }],
             answer: Some(AnswerView {
                 label: "♭3".into(),
                 resolution: "♭3 · 2 · 1".into(),
+                verdict: Some(Verdict {
+                    your_label: "3".into(),
+                    correct: false,
+                }),
             }),
             compare: Some(CompareView {
                 missed: "♭3".into(),

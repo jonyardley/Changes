@@ -49,6 +49,7 @@ final class RootViewSnapshotTests: XCTestCase {
   private func fixture(
     phase: Phase,
     itemNumber: UInt32 = 3,
+    options: [DegreeOption] = [],
     answer: AnswerView? = nil,
     compare: CompareView? = nil,
     recap: RecapView? = nil,
@@ -63,6 +64,7 @@ final class RootViewSnapshotTests: XCTestCase {
       itemNumber: itemNumber,
       totalItems: 12,
       keyName: "E♭",
+      options: options,
       answer: answer,
       compare: compare,
       recap: recap,
@@ -70,6 +72,11 @@ final class RootViewSnapshotTests: XCTestCase {
       pause: pause,
       error: error
     )
+  }
+
+  private var diatonicOptions: [DegreeOption] {
+    [(0, "1"), (2, "2"), (4, "3"), (5, "4"), (7, "5"), (9, "6"), (11, "7")]
+      .map { DegreeOption(label: $0.1, semitones: UInt8($0.0)) }
   }
 
   func testPreSession() throws {
@@ -89,19 +96,35 @@ final class RootViewSnapshotTests: XCTestCase {
     try snapshot(fixture(phase: .gap), named: "gap")
   }
 
-  func testReveal() throws {
+  func testPick() throws {
+    try snapshot(fixture(phase: .pick, options: diatonicOptions), named: "pick")
+  }
+
+  func testRevealCorrect() throws {
     try snapshot(
       fixture(
         phase: .reveal,
-        answer: AnswerView(label: "♭3", resolution: "♭3 · 2 · 1")),
+        answer: AnswerView(
+          label: "♭3", resolution: "♭3 · 2 · 1",
+          verdict: Verdict(yourLabel: "♭3", correct: true))),
       named: "reveal")
+  }
+
+  func testRevealWrong() throws {
+    try snapshot(
+      fixture(
+        phase: .reveal,
+        answer: AnswerView(
+          label: "♭3", resolution: "♭3 · 2 · 1",
+          verdict: Verdict(yourLabel: "3", correct: false))),
+      named: "reveal-wrong")
   }
 
   func testCompare() throws {
     try snapshot(
       fixture(
         phase: .compare,
-        answer: AnswerView(label: "♭3", resolution: "♭3 · 2 · 1"),
+        answer: AnswerView(label: "♭3", resolution: "♭3 · 2 · 1", verdict: nil),
         compare: CompareView(missed: "♭3", twin: "3", playingTwin: false)),
       named: "compare")
   }
@@ -131,7 +154,9 @@ final class RootViewSnapshotTests: XCTestCase {
     try snapshot(
       fixture(
         phase: .reveal,
-        answer: AnswerView(label: "♭3", resolution: "♭3 · 2 · 1")),
+        answer: AnswerView(
+          label: "♭3", resolution: "♭3 · 2 · 1",
+          verdict: Verdict(yourLabel: "3", correct: false))),
       named: "reveal-ax-xl",
       sizeCategory: .accessibilityExtraLarge)
   }

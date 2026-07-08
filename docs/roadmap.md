@@ -89,6 +89,13 @@ Sonofield for a jazz user on its own. Build order and decisions:
         in-memory fallback surfaced in UI), migration v1 per the spec
         schema, `ChangesTests` target (store round-trip + skill-key codec +
         populated-at-v1 upgrade test) run by `just ios-test` and CI.
+- [x] Answer input (2026-07-08, `docs/specs/answer-input.md` — supersedes
+      self-grading): commit → pick → graded feedback. Gap stays clean
+      (recall first), "I've named it" opens the rung-pool degree picker,
+      the reveal shows the verdict, and a wrong answer leads through the
+      compare loop seeded with the degree actually answered (twin table
+      now fallback only). `review_logs.answered` (migration v2) starts the
+      real confusion matrix; SRS grades derive from correctness.
 - [x] Pocket Session UI (2026-07-08): all canvas states — pre-session
       (190px play, duration pills wired to session length), context (level
       bars), question ("?" pulse), gap, reveal (answer zones 25%↔100%),

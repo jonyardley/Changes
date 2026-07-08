@@ -66,6 +66,9 @@ pub struct ReviewLog {
     pub id: String,
     pub skill: SkillId,
     pub grade: Grade,
+    /// What the user answered (None for pre-answer-input history) — the
+    /// raw material of the real confusion matrix (answer-input spec).
+    pub answered: Option<Degree>,
     pub reviewed_at_ms: i64,
 }
 
